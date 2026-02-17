@@ -75,6 +75,11 @@ pub const Agent = struct {
     auto_save: bool,
     token_limit: u64 = 0,
 
+    /// Optional streaming callback. When set, turn() uses streamChat() for streaming providers.
+    stream_callback: ?providers.StreamCallback = null,
+    /// Context pointer passed to stream_callback.
+    stream_ctx: ?*anyopaque = null,
+
     /// Conversation history — owned, growable list.
     history: std.ArrayListUnmanaged(OwnedMessage) = .empty,
 
@@ -451,33 +456,43 @@ pub const Agent = struct {
             defer self.allocator.free(messages);
 
             const timer_start = std.time.milliTimestamp();
+            const is_streaming = self.stream_callback != null and self.provider.supportsStreaming();
 
-            // Call provider with error recovery (retry once on failure)
-            const response = self.provider.chat(
-                self.allocator,
-                .{
-                    .messages = messages,
-                    .model = self.model_name,
-                    .temperature = self.temperature,
-                    .tools = if (self.provider.supportsNativeTools()) self.tool_specs else null,
-                },
-                self.model_name,
-                self.temperature,
-            ) catch |err| retry_blk: {
-                // Record the failed attempt
-                const fail_duration: u64 = @intCast(std.time.milliTimestamp() - timer_start);
-                const fail_event = ObserverEvent{ .llm_response = .{
-                    .provider = self.provider.getName(),
-                    .model = self.model_name,
-                    .duration_ms = fail_duration,
-                    .success = false,
-                    .error_message = @errorName(err),
-                } };
-                self.observer.recordEvent(&fail_event);
-
-                // Retry once
-                std.Thread.sleep(500 * std.time.ns_per_ms);
-                break :retry_blk self.provider.chat(
+            // Call provider: streaming (no retries, no native tools) or blocking with retry
+            var response: ChatResponse = undefined;
+            if (is_streaming) {
+                const stream_result = self.provider.streamChat(
+                    self.allocator,
+                    .{
+                        .messages = messages,
+                        .model = self.model_name,
+                        .temperature = self.temperature,
+                        .tools = null,
+                    },
+                    self.model_name,
+                    self.temperature,
+                    self.stream_callback.?,
+                    self.stream_ctx.?,
+                ) catch |err| {
+                    const fail_duration: u64 = @intCast(std.time.milliTimestamp() - timer_start);
+                    const fail_event = ObserverEvent{ .llm_response = .{
+                        .provider = self.provider.getName(),
+                        .model = self.model_name,
+                        .duration_ms = fail_duration,
+                        .success = false,
+                        .error_message = @errorName(err),
+                    } };
+                    self.observer.recordEvent(&fail_event);
+                    return err;
+                };
+                response = ChatResponse{
+                    .content = stream_result.content,
+                    .tool_calls = &.{},
+                    .usage = stream_result.usage,
+                    .model = stream_result.model,
+                };
+            } else {
+                response = self.provider.chat(
                     self.allocator,
                     .{
                         .messages = messages,
@@ -487,27 +502,52 @@ pub const Agent = struct {
                     },
                     self.model_name,
                     self.temperature,
-                ) catch |retry_err| {
-                    // Context exhaustion recovery: if we have enough history,
-                    // force-compress and retry once more
-                    if (self.history.items.len > CONTEXT_RECOVERY_MIN_HISTORY and self.forceCompressHistory()) {
-                        const recovery_msgs = self.buildMessageSlice() catch return retry_err;
-                        defer self.allocator.free(recovery_msgs);
-                        break :retry_blk self.provider.chat(
-                            self.allocator,
-                            .{
-                                .messages = recovery_msgs,
-                                .model = self.model_name,
-                                .temperature = self.temperature,
-                                .tools = if (self.provider.supportsNativeTools()) self.tool_specs else null,
-                            },
-                            self.model_name,
-                            self.temperature,
-                        ) catch return retry_err;
-                    }
-                    return retry_err;
+                ) catch |err| retry_blk: {
+                    // Record the failed attempt
+                    const fail_duration: u64 = @intCast(std.time.milliTimestamp() - timer_start);
+                    const fail_event = ObserverEvent{ .llm_response = .{
+                        .provider = self.provider.getName(),
+                        .model = self.model_name,
+                        .duration_ms = fail_duration,
+                        .success = false,
+                        .error_message = @errorName(err),
+                    } };
+                    self.observer.recordEvent(&fail_event);
+
+                    // Retry once
+                    std.Thread.sleep(500 * std.time.ns_per_ms);
+                    break :retry_blk self.provider.chat(
+                        self.allocator,
+                        .{
+                            .messages = messages,
+                            .model = self.model_name,
+                            .temperature = self.temperature,
+                            .tools = if (self.provider.supportsNativeTools()) self.tool_specs else null,
+                        },
+                        self.model_name,
+                        self.temperature,
+                    ) catch |retry_err| {
+                        // Context exhaustion recovery: if we have enough history,
+                        // force-compress and retry once more
+                        if (self.history.items.len > CONTEXT_RECOVERY_MIN_HISTORY and self.forceCompressHistory()) {
+                            const recovery_msgs = self.buildMessageSlice() catch return retry_err;
+                            defer self.allocator.free(recovery_msgs);
+                            break :retry_blk self.provider.chat(
+                                self.allocator,
+                                .{
+                                    .messages = recovery_msgs,
+                                    .model = self.model_name,
+                                    .temperature = self.temperature,
+                                    .tools = if (self.provider.supportsNativeTools()) self.tool_specs else null,
+                                },
+                                self.model_name,
+                                self.temperature,
+                            ) catch return retry_err;
+                        }
+                        return retry_err;
+                    };
                 };
-            };
+            }
 
             const duration_ms: u64 = @intCast(std.time.milliTimestamp() - timer_start);
             const resp_event = ObserverEvent{ .llm_response = .{
@@ -618,7 +658,7 @@ pub const Agent = struct {
             }
 
             // There are tool calls — print intermediary text
-            if (display_text.len > 0 and parsed_calls.len > 0) {
+            if (display_text.len > 0 and parsed_calls.len > 0 and !is_streaming) {
                 var out_buf: [4096]u8 = undefined;
                 var bw = std.fs.File.stdout().writer(&out_buf);
                 const w = &bw.interface;
@@ -799,6 +839,16 @@ pub const Agent = struct {
 // Top-level run() — entry point for CLI
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Streaming callback that writes chunks directly to stdout.
+fn cliStreamCallback(_: *anyopaque, chunk: providers.StreamChunk) void {
+    if (chunk.delta.len == 0) return;
+    var buf: [4096]u8 = undefined;
+    var bw = std.fs.File.stdout().writer(&buf);
+    const wr = &bw.interface;
+    wr.print("{s}", .{chunk.delta}) catch {};
+    wr.flush() catch {};
+}
+
 /// Run the agent in single-message or interactive REPL mode.
 /// This is the main entry point called by `nullclaw agent`.
 pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
@@ -822,10 +872,21 @@ pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
     } };
     obs.recordEvent(&start_event);
 
+    // Initialize MCP tools from config
+    const mcp_mod = @import("../mcp.zig");
+    const mcp_tools: ?[]const tools_mod.Tool = if (cfg.mcp_servers.len > 0)
+        mcp_mod.initMcpTools(allocator, cfg.mcp_servers) catch |err| blk: {
+            std.debug.print("MCP: init failed: {}\n", .{err});
+            break :blk null;
+        }
+    else
+        null;
+
     // Create tools
     const tools = try tools_mod.allTools(allocator, cfg.workspace_dir, .{
         .http_enabled = cfg.http_request.enabled,
         .browser_enabled = cfg.browser.enabled,
+        .mcp_tools = mcp_tools,
     });
     defer allocator.free(tools);
 
@@ -837,10 +898,53 @@ pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         mem_opt = mem;
     } else |_| {}
 
-    // Create provider — use the legacy complete() for now since the full vtable
-    // provider factory requires HTTP client initialization that's still in progress.
-    // For the agent module, we need the Provider vtable interface.
-    // Fall back to printing an error if provider creation fails.
+    // Create provider via ProviderHolder (concrete struct lives on the stack)
+    const ProviderHolder = union(enum) {
+        openrouter: providers.openrouter.OpenRouterProvider,
+        anthropic: providers.anthropic.AnthropicProvider,
+        openai: providers.openai.OpenAiProvider,
+        gemini: providers.gemini.GeminiProvider,
+        ollama: providers.ollama.OllamaProvider,
+        compatible: providers.compatible.OpenAiCompatibleProvider,
+    };
+
+    const kind = providers.classifyProvider(cfg.default_provider);
+    var holder: ProviderHolder = switch (kind) {
+        .anthropic_provider => .{ .anthropic = providers.anthropic.AnthropicProvider.init(
+            allocator,
+            cfg.api_key,
+            if (std.mem.startsWith(u8, cfg.default_provider, "anthropic-custom:"))
+                cfg.default_provider["anthropic-custom:".len..]
+            else
+                null,
+        ) },
+        .openai_provider => .{ .openai = providers.openai.OpenAiProvider.init(allocator, cfg.api_key) },
+        .gemini_provider => .{ .gemini = providers.gemini.GeminiProvider.init(allocator, cfg.api_key) },
+        .ollama_provider => .{ .ollama = providers.ollama.OllamaProvider.init(allocator, null) },
+        .openrouter_provider => .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, cfg.api_key) },
+        .compatible_provider => .{ .compatible = providers.compatible.OpenAiCompatibleProvider.init(
+            allocator,
+            cfg.default_provider,
+            if (std.mem.startsWith(u8, cfg.default_provider, "custom:"))
+                cfg.default_provider["custom:".len..]
+            else
+                providers.compatibleProviderUrl(cfg.default_provider) orelse "https://openrouter.ai/api/v1",
+            cfg.api_key,
+            .bearer,
+        ) },
+        .unknown => .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, cfg.api_key) },
+    };
+
+    const provider_i: Provider = switch (holder) {
+        .openrouter => |*p| p.provider(),
+        .anthropic => |*p| p.provider(),
+        .openai => |*p| p.provider(),
+        .gemini => |*p| p.provider(),
+        .ollama => |*p| p.provider(),
+        .compatible => |*p| p.provider(),
+    };
+
+    const supports_streaming = provider_i.supportsStreaming();
 
     // Single message mode: nullclaw agent -m "hello"
     if (args.len >= 2 and (std.mem.eql(u8, args[0], "-m") or std.mem.eql(u8, args[0], "--message"))) {
@@ -848,10 +952,24 @@ pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         try w.print("Sending to {s}...\n", .{cfg.default_provider});
         try w.flush();
 
-        // Use legacy provider path for single messages
-        const response = try providers.complete(allocator, &cfg, message);
+        var agent = try Agent.fromConfig(allocator, &cfg, provider_i, tools, mem_opt, obs);
+        defer agent.deinit();
+
+        // Enable streaming if provider supports it
+        var stream_ctx: u8 = 0;
+        if (supports_streaming) {
+            agent.stream_callback = cliStreamCallback;
+            agent.stream_ctx = @ptrCast(&stream_ctx);
+        }
+
+        const response = try agent.turn(message);
         defer allocator.free(response);
-        try w.print("{s}\n", .{response});
+
+        if (supports_streaming) {
+            try w.print("\n", .{});
+        } else {
+            try w.print("{s}\n", .{response});
+        }
         try w.flush();
         return;
     }
@@ -862,8 +980,21 @@ pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         cfg.default_provider,
         cfg.default_model orelse "(default)",
     });
+    if (supports_streaming) {
+        try w.print("Streaming: enabled\n", .{});
+    }
     try w.print("Type your message (Ctrl+D to exit):\n\n", .{});
     try w.flush();
+
+    var agent = try Agent.fromConfig(allocator, &cfg, provider_i, tools, mem_opt, obs);
+    defer agent.deinit();
+
+    // Enable streaming if provider supports it
+    var stream_ctx: u8 = 0;
+    if (supports_streaming) {
+        agent.stream_callback = cliStreamCallback;
+        agent.stream_ctx = @ptrCast(&stream_ctx);
+    }
 
     const stdin = std.fs.File.stdin();
     var line_buf: [4096]u8 = undefined;
@@ -886,14 +1017,18 @@ pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         if (std.mem.eql(u8, line, "exit") or std.mem.eql(u8, line, "quit") or
             std.mem.eql(u8, line, ":q") or std.mem.eql(u8, line, "/exit")) return;
 
-        // Use legacy provider path for REPL
-        const response = providers.complete(allocator, &cfg, line) catch |err| {
+        const response = agent.turn(line) catch |err| {
             try w.print("Error: {}\n", .{err});
             try w.flush();
             continue;
         };
         defer allocator.free(response);
-        try w.print("\n{s}\n\n", .{response});
+
+        if (supports_streaming) {
+            try w.print("\n\n", .{});
+        } else {
+            try w.print("\n{s}\n\n", .{response});
+        }
         try w.flush();
     }
 }
@@ -1810,4 +1945,66 @@ test "forceCompressHistory no-op when history is small" {
 test "CONTEXT_RECOVERY constants" {
     try std.testing.expectEqual(@as(usize, 6), CONTEXT_RECOVERY_MIN_HISTORY);
     try std.testing.expectEqual(@as(usize, 4), CONTEXT_RECOVERY_KEEP);
+}
+
+test "Agent streaming fields default to null" {
+    const allocator = std.testing.allocator;
+    var noop = observability.NoopObserver{};
+    var agent = Agent{
+        .allocator = allocator,
+        .provider = undefined,
+        .tools = &.{},
+        .tool_specs = try allocator.alloc(ToolSpec, 0),
+        .mem = null,
+        .observer = noop.observer(),
+        .model_name = "test",
+        .temperature = 0.7,
+        .workspace_dir = "/tmp",
+        .max_tool_iterations = 10,
+        .max_history_messages = 50,
+        .auto_save = false,
+    };
+    defer agent.deinit();
+
+    try std.testing.expect(agent.stream_callback == null);
+    try std.testing.expect(agent.stream_ctx == null);
+}
+
+test "cliStreamCallback handles empty delta" {
+    const chunk = providers.StreamChunk.finalChunk();
+    cliStreamCallback(undefined, chunk);
+}
+
+test "cliStreamCallback text delta chunk" {
+    const chunk = providers.StreamChunk.textDelta("hello");
+    try std.testing.expectEqualStrings("hello", chunk.delta);
+    try std.testing.expect(!chunk.is_final);
+    try std.testing.expectEqual(@as(u32, 2), chunk.token_count);
+}
+
+test "Agent streaming fields can be set" {
+    const allocator = std.testing.allocator;
+    var noop = observability.NoopObserver{};
+    var agent = Agent{
+        .allocator = allocator,
+        .provider = undefined,
+        .tools = &.{},
+        .tool_specs = try allocator.alloc(ToolSpec, 0),
+        .mem = null,
+        .observer = noop.observer(),
+        .model_name = "test",
+        .temperature = 0.7,
+        .workspace_dir = "/tmp",
+        .max_tool_iterations = 10,
+        .max_history_messages = 50,
+        .auto_save = false,
+    };
+    defer agent.deinit();
+
+    var ctx: u8 = 42;
+    agent.stream_callback = cliStreamCallback;
+    agent.stream_ctx = @ptrCast(&ctx);
+
+    try std.testing.expect(agent.stream_callback != null);
+    try std.testing.expect(agent.stream_ctx != null);
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const root = @import("root.zig");
+const sse = @import("sse.zig");
 
 const Provider = root.Provider;
 const ChatMessage = root.ChatMessage;
@@ -150,7 +151,34 @@ pub const OpenAiProvider = struct {
         .supportsNativeTools = supportsNativeToolsImpl,
         .getName = getNameImpl,
         .deinit = deinitImpl,
+        .stream_chat = streamChatImpl,
+        .supports_streaming = supportsStreamingImpl,
     };
+
+    fn streamChatImpl(
+        ptr: *anyopaque,
+        allocator: std.mem.Allocator,
+        request: root.ChatRequest,
+        model: []const u8,
+        temperature: f64,
+        callback: root.StreamCallback,
+        callback_ctx: *anyopaque,
+    ) anyerror!root.StreamChatResult {
+        const self: *OpenAiProvider = @ptrCast(@alignCast(ptr));
+        const api_key = self.api_key orelse return error.CredentialsNotSet;
+
+        const body = try buildStreamingChatRequestBody(allocator, request, model, temperature);
+        defer allocator.free(body);
+
+        const auth_hdr = try std.fmt.allocPrint(allocator, "Authorization: Bearer {s}", .{api_key});
+        defer allocator.free(auth_hdr);
+
+        return sse.curlStream(allocator, BASE_URL, body, auth_hdr, &.{}, callback, callback_ctx);
+    }
+
+    fn supportsStreamingImpl(_: *anyopaque) bool {
+        return true;
+    }
 
     fn chatWithSystemImpl(
         ptr: *anyopaque,
@@ -206,6 +234,47 @@ pub const OpenAiProvider = struct {
     }
 
     fn deinitImpl(_: *anyopaque) void {}
+
+    /// Build a streaming chat request JSON body (same as buildChatRequestBody but with "stream":true).
+    fn buildStreamingChatRequestBody(
+        allocator: std.mem.Allocator,
+        request: ChatRequest,
+        model: []const u8,
+        temperature: f64,
+    ) ![]const u8 {
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
+        errdefer buf.deinit(allocator);
+
+        try buf.appendSlice(allocator, "{\"model\":\"");
+        try buf.appendSlice(allocator, model);
+        try buf.appendSlice(allocator, "\",\"messages\":[");
+
+        for (request.messages, 0..) |msg, i| {
+            if (i > 0) try buf.append(allocator, ',');
+            try buf.appendSlice(allocator, "{\"role\":\"");
+            try buf.appendSlice(allocator, msg.role.toSlice());
+            try buf.appendSlice(allocator, "\",\"content\":");
+            try appendJsonString(&buf, allocator, msg.content);
+            if (msg.tool_call_id) |tc_id| {
+                try buf.appendSlice(allocator, ",\"tool_call_id\":");
+                try appendJsonString(&buf, allocator, tc_id);
+            }
+            try buf.append(allocator, '}');
+        }
+
+        try buf.appendSlice(allocator, "],\"temperature\":");
+        var temp_buf: [16]u8 = undefined;
+        const temp_str = std.fmt.bufPrint(&temp_buf, "{d:.2}", .{temperature}) catch return error.OpenAiApiError;
+        try buf.appendSlice(allocator, temp_str);
+
+        try buf.appendSlice(allocator, ",\"max_tokens\":");
+        var max_buf: [16]u8 = undefined;
+        const max_str = std.fmt.bufPrint(&max_buf, "{d}", .{request.max_tokens}) catch return error.OpenAiApiError;
+        try buf.appendSlice(allocator, max_str);
+
+        try buf.appendSlice(allocator, ",\"stream\":true}");
+        return try buf.toOwnedSlice(allocator);
+    }
 
     /// Build a full chat request JSON body from a ChatRequest.
     fn buildChatRequestBody(

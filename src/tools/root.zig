@@ -144,6 +144,7 @@ pub fn allTools(
         composio_api_key: ?[]const u8 = null,
         browser_open_domains: ?[]const []const u8 = null,
         hardware_boards: ?[]const []const u8 = null,
+        mcp_tools: ?[]const Tool = null,
     },
 ) ![]Tool {
     var list: std.ArrayList(Tool) = .{};
@@ -239,6 +240,13 @@ pub fn allTools(
         const hmt = try allocator.create(hardware_memory.HardwareMemoryTool);
         hmt.* = .{ .boards = boards };
         try list.append(allocator, hmt.tool());
+    }
+
+    // MCP tools (pre-initialized externally)
+    if (opts.mcp_tools) |mt| {
+        for (mt) |t| {
+            try list.append(allocator, t);
+        }
     }
 
     return list.toOwnedSlice(allocator);

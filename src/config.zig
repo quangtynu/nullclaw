@@ -395,6 +395,20 @@ pub const NamedAgentConfig = struct {
     max_depth: u32 = 3,
 };
 
+// ── MCP Server Config ──────────────────────────────────────────
+
+pub const McpServerConfig = struct {
+    name: []const u8,
+    command: []const u8,
+    args: []const []const u8 = &.{},
+    env: []const McpEnvEntry = &.{},
+
+    pub const McpEnvEntry = struct {
+        key: []const u8,
+        value: []const u8,
+    };
+};
+
 // ── Model Pricing ──────────────────────────────────────────────
 
 pub const ModelPricing = struct {
@@ -420,6 +434,7 @@ pub const Config = struct {
     // Model routing and delegate agents
     model_routes: []const ModelRouteConfig = &.{},
     agents: []const NamedAgentConfig = &.{},
+    mcp_servers: []const McpServerConfig = &.{},
 
     // Nested sub-configs
     observability: ObservabilityConfig = .{},
@@ -603,6 +618,51 @@ pub const Config = struct {
                     }
                 }
                 self.agents = try list.toOwnedSlice(self.allocator);
+            }
+        }
+
+        // MCP servers (object-of-objects format, compatible with Claude Desktop / Cursor)
+        if (root.get("mcp_servers")) |mcp_val| {
+            if (mcp_val == .object) {
+                var mcp_list: std.ArrayListUnmanaged(McpServerConfig) = .empty;
+                var mcp_it = mcp_val.object.iterator();
+                while (mcp_it.next()) |entry| {
+                    const server_name = entry.key_ptr.*;
+                    const val = entry.value_ptr.*;
+                    if (val != .object) continue;
+                    const cmd = val.object.get("command") orelse continue;
+                    if (cmd != .string) continue;
+
+                    var mcp_cfg = McpServerConfig{
+                        .name = try self.allocator.dupe(u8, server_name),
+                        .command = try self.allocator.dupe(u8, cmd.string),
+                    };
+
+                    // args: string array
+                    if (val.object.get("args")) |a| {
+                        if (a == .array) mcp_cfg.args = try self.parseStringArray(a.array);
+                    }
+
+                    // env: object of string→string
+                    if (val.object.get("env")) |e| {
+                        if (e == .object) {
+                            var env_list: std.ArrayListUnmanaged(McpServerConfig.McpEnvEntry) = .empty;
+                            var eit = e.object.iterator();
+                            while (eit.next()) |ee| {
+                                if (ee.value_ptr.* == .string) {
+                                    try env_list.append(self.allocator, .{
+                                        .key = try self.allocator.dupe(u8, ee.key_ptr.*),
+                                        .value = try self.allocator.dupe(u8, ee.value_ptr.string),
+                                    });
+                                }
+                            }
+                            mcp_cfg.env = try env_list.toOwnedSlice(self.allocator);
+                        }
+                    }
+
+                    try mcp_list.append(self.allocator, mcp_cfg);
+                }
+                self.mcp_servers = try mcp_list.toOwnedSlice(self.allocator);
             }
         }
 
@@ -3012,4 +3072,106 @@ test "syncFlatFields copies nested values to flat aliases" {
     try std.testing.expectEqual(@as(u16, 4000), cfg.gateway_port);
     try std.testing.expect(!cfg.workspace_only);
     try std.testing.expectEqual(@as(u32, 99), cfg.max_actions_per_hour);
+}
+
+// ── MCP config tests ────────────────────────────────────────────
+
+test "config default empty mcp_servers" {
+    const cfg = Config{
+        .workspace_dir = "/tmp/yc",
+        .config_path = "/tmp/yc/config.json",
+        .allocator = std.testing.allocator,
+    };
+    try std.testing.expectEqual(@as(usize, 0), cfg.mcp_servers.len);
+}
+
+test "json parse mcp_servers" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\{"mcp_servers": {
+        \\  "filesystem": {
+        \\    "command": "npx",
+        \\    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+        \\  },
+        \\  "git": {
+        \\    "command": "mcp-server-git"
+        \\  }
+        \\}}
+    ;
+    var cfg = Config{ .workspace_dir = "/tmp/yc", .config_path = "/tmp/yc/config.json", .allocator = allocator };
+    try cfg.parseJson(json);
+    try std.testing.expectEqual(@as(usize, 2), cfg.mcp_servers.len);
+    // Find filesystem entry (order may vary due to hash map)
+    var found_fs = false;
+    var found_git = false;
+    for (cfg.mcp_servers) |s| {
+        if (std.mem.eql(u8, s.name, "filesystem")) {
+            found_fs = true;
+            try std.testing.expectEqualStrings("npx", s.command);
+            try std.testing.expectEqual(@as(usize, 3), s.args.len);
+            try std.testing.expectEqualStrings("-y", s.args[0]);
+        }
+        if (std.mem.eql(u8, s.name, "git")) {
+            found_git = true;
+            try std.testing.expectEqualStrings("mcp-server-git", s.command);
+            try std.testing.expectEqual(@as(usize, 0), s.args.len);
+        }
+    }
+    try std.testing.expect(found_fs);
+    try std.testing.expect(found_git);
+    // Cleanup
+    for (cfg.mcp_servers) |s| {
+        allocator.free(s.name);
+        allocator.free(s.command);
+        for (s.args) |a| allocator.free(a);
+        allocator.free(s.args);
+    }
+    allocator.free(cfg.mcp_servers);
+}
+
+test "json parse mcp_servers with env" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\{"mcp_servers": {
+        \\  "myserver": {
+        \\    "command": "/usr/bin/server",
+        \\    "args": ["--verbose"],
+        \\    "env": {"NODE_ENV": "production", "DEBUG": "true"}
+        \\  }
+        \\}}
+    ;
+    var cfg = Config{ .workspace_dir = "/tmp/yc", .config_path = "/tmp/yc/config.json", .allocator = allocator };
+    try cfg.parseJson(json);
+    try std.testing.expectEqual(@as(usize, 1), cfg.mcp_servers.len);
+    const s = cfg.mcp_servers[0];
+    try std.testing.expectEqualStrings("myserver", s.name);
+    try std.testing.expectEqualStrings("/usr/bin/server", s.command);
+    try std.testing.expectEqual(@as(usize, 1), s.args.len);
+    try std.testing.expectEqual(@as(usize, 2), s.env.len);
+    // Find env entries (order may vary)
+    var found_node = false;
+    var found_debug = false;
+    for (s.env) |e| {
+        if (std.mem.eql(u8, e.key, "NODE_ENV")) {
+            found_node = true;
+            try std.testing.expectEqualStrings("production", e.value);
+        }
+        if (std.mem.eql(u8, e.key, "DEBUG")) {
+            found_debug = true;
+            try std.testing.expectEqualStrings("true", e.value);
+        }
+    }
+    try std.testing.expect(found_node);
+    try std.testing.expect(found_debug);
+    // Cleanup
+    allocator.free(s.name);
+    allocator.free(s.command);
+    for (s.args) |a| allocator.free(a);
+    allocator.free(s.args);
+    for (s.env) |e| {
+        allocator.free(e.key);
+        allocator.free(e.value);
+    }
+    allocator.free(s.env);
+    allocator.free(cfg.mcp_servers);
 }

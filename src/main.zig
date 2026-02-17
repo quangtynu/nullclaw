@@ -689,13 +689,27 @@ fn runChannelStart(allocator: std.mem.Allocator, args: []const []const u8) !void
 
     var tg = yc.channels.telegram.TelegramChannel.init(allocator, telegram_config.bot_token, allowed);
 
+    // Initialize MCP tools from config
+    const mcp_tools: ?[]const yc.tools.Tool = if (config.mcp_servers.len > 0)
+        yc.mcp.initMcpTools(allocator, config.mcp_servers) catch |err| blk: {
+            std.debug.print("  MCP: init failed: {}\n", .{err});
+            break :blk null;
+        }
+    else
+        null;
+
     // Create tools (for system prompt and tool calling)
     const tools = yc.tools.allTools(allocator, config.workspace_dir, .{
         .http_enabled = config.http_request.enabled,
         .browser_enabled = config.browser.enabled,
         .screenshot_enabled = true,
+        .mcp_tools = mcp_tools,
     }) catch &.{};
     defer if (tools.len > 0) allocator.free(tools);
+
+    if (mcp_tools) |mt| {
+        std.debug.print("  MCP tools: {d}\n", .{mt.len});
+    }
 
     // Create optional memory backend (don't fail if unavailable)
     var mem_opt: ?yc.memory.Memory = null;

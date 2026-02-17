@@ -39,6 +39,9 @@ pub const observability = @import("observability.zig");
 pub const heartbeat = @import("heartbeat.zig");
 pub const runtime = @import("runtime.zig");
 
+// Phase 4b: MCP (Model Context Protocol)
+pub const mcp = @import("mcp.zig");
+
 // Phase 5: Hardware & Integrations
 pub const hardware = @import("hardware.zig");
 pub const integrations = @import("integrations.zig");

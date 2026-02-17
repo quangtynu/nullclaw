@@ -1,5 +1,6 @@
 const std = @import("std");
 const root = @import("root.zig");
+const sse = @import("sse.zig");
 
 const Provider = root.Provider;
 const ChatMessage = root.ChatMessage;
@@ -205,6 +206,8 @@ pub const AnthropicProvider = struct {
         .supportsNativeTools = supportsNativeToolsImpl,
         .getName = getNameImpl,
         .deinit = deinitImpl,
+        .stream_chat = streamChatImpl,
+        .supports_streaming = supportsStreamingImpl,
     };
 
     fn chatWithSystemImpl(
@@ -298,6 +301,53 @@ pub const AnthropicProvider = struct {
     }
 
     fn deinitImpl(_: *anyopaque) void {}
+
+    fn supportsStreamingImpl(_: *anyopaque) bool {
+        return true;
+    }
+
+    fn streamChatImpl(
+        ptr: *anyopaque,
+        allocator: std.mem.Allocator,
+        request: ChatRequest,
+        model: []const u8,
+        temperature: f64,
+        callback: root.StreamCallback,
+        callback_ctx: *anyopaque,
+    ) anyerror!root.StreamChatResult {
+        const self: *AnthropicProvider = @ptrCast(@alignCast(ptr));
+        const credential = self.credential orelse return error.CredentialsNotSet;
+
+        const url = try self.messagesUrl(allocator);
+        defer allocator.free(url);
+
+        const body = try buildStreamingChatRequestBody(allocator, request, model, temperature);
+        defer allocator.free(body);
+
+        const auth = try authHeaderValue(allocator, credential);
+        defer if (auth.needs_free) allocator.free(auth.header_value);
+
+        // Format auth header
+        var auth_hdr_buf: [512]u8 = undefined;
+        const auth_hdr = std.fmt.bufPrint(&auth_hdr_buf, "{s}: {s}", .{ auth.header_name, auth.header_value }) catch return error.AnthropicApiError;
+
+        var version_hdr_buf: [64]u8 = undefined;
+        const version_hdr = std.fmt.bufPrint(&version_hdr_buf, "anthropic-version: {s}", .{API_VERSION}) catch return error.AnthropicApiError;
+
+        // Build headers array (up to 4: auth, version, optional beta, optional user-agent)
+        var headers_buf: [4][]const u8 = undefined;
+        var hdr_count: usize = 0;
+        headers_buf[hdr_count] = auth_hdr;
+        hdr_count += 1;
+        headers_buf[hdr_count] = version_hdr;
+        hdr_count += 1;
+        if (isSetupToken(credential)) {
+            headers_buf[hdr_count] = "anthropic-beta: oauth-2025-04-20";
+            hdr_count += 1;
+        }
+
+        return sse.curlStreamAnthropic(allocator, url, body, headers_buf[0..hdr_count], callback, callback_ctx);
+    }
 };
 
 /// Build a full chat request JSON body from a ChatRequest (Anthropic messages format).
@@ -358,6 +408,64 @@ fn buildChatRequestBody(
     try buf.appendSlice(allocator, temp_str);
 
     try buf.append(allocator, '}');
+    return try buf.toOwnedSlice(allocator);
+}
+
+/// Build a streaming chat request JSON body (same as buildChatRequestBody but with "stream":true).
+fn buildStreamingChatRequestBody(
+    allocator: std.mem.Allocator,
+    request: ChatRequest,
+    model: []const u8,
+    temperature: f64,
+) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(allocator);
+
+    // Extract system prompt (Anthropic puts it top-level, not in messages array)
+    var system_prompt: ?[]const u8 = null;
+    for (request.messages) |msg| {
+        if (msg.role == .system) {
+            system_prompt = msg.content;
+            break;
+        }
+    }
+
+    try buf.appendSlice(allocator, "{\"model\":\"");
+    try buf.appendSlice(allocator, model);
+    try buf.appendSlice(allocator, "\",\"max_tokens\":");
+    var max_buf: [16]u8 = undefined;
+    const max_str = std.fmt.bufPrint(&max_buf, "{d}", .{AnthropicProvider.DEFAULT_MAX_TOKENS}) catch return error.AnthropicApiError;
+    try buf.appendSlice(allocator, max_str);
+
+    if (system_prompt) |sys| {
+        try buf.appendSlice(allocator, ",\"system\":");
+        try appendJsonString(&buf, allocator, sys);
+    }
+
+    try buf.appendSlice(allocator, ",\"messages\":[");
+    var count: usize = 0;
+    for (request.messages) |msg| {
+        if (msg.role == .system) continue;
+        if (count > 0) try buf.append(allocator, ',');
+        count += 1;
+        const role_str: []const u8 = switch (msg.role) {
+            .user, .tool => "user",
+            .assistant => "assistant",
+            .system => unreachable,
+        };
+        try buf.appendSlice(allocator, "{\"role\":\"");
+        try buf.appendSlice(allocator, role_str);
+        try buf.appendSlice(allocator, "\",\"content\":");
+        try appendJsonString(&buf, allocator, msg.content);
+        try buf.append(allocator, '}');
+    }
+
+    try buf.appendSlice(allocator, "],\"temperature\":");
+    var temp_buf: [16]u8 = undefined;
+    const temp_str = std.fmt.bufPrint(&temp_buf, "{d:.2}", .{temperature}) catch return error.AnthropicApiError;
+    try buf.appendSlice(allocator, temp_str);
+
+    try buf.appendSlice(allocator, ",\"stream\":true}");
     return try buf.toOwnedSlice(allocator);
 }
 
@@ -720,4 +828,48 @@ test "parseNativeResponse usage missing defaults to zero" {
     try std.testing.expect(response.usage.prompt_tokens == 0);
     try std.testing.expect(response.usage.completion_tokens == 0);
     try std.testing.expect(response.usage.total_tokens == 0);
+}
+
+// ── Streaming Tests ─────────────────────────────────────────────
+
+test "buildStreamingChatRequestBody contains stream true" {
+    const allocator = std.testing.allocator;
+    const msgs = [_]root.ChatMessage{root.ChatMessage.user("hello")};
+    const req = root.ChatRequest{ .messages = &msgs };
+    const body = try buildStreamingChatRequestBody(allocator, req, "claude-3-opus", 0.7);
+    defer allocator.free(body);
+    try std.testing.expect(std.mem.indexOf(u8, body, "\"stream\":true") != null);
+}
+
+test "buildStreamingChatRequestBody contains same messages as non-streaming" {
+    const allocator = std.testing.allocator;
+    const msgs = [_]root.ChatMessage{
+        root.ChatMessage.system("Be helpful"),
+        root.ChatMessage.user("hello"),
+    };
+    const req = root.ChatRequest{ .messages = &msgs };
+    const streaming = try buildStreamingChatRequestBody(allocator, req, "claude-3-opus", 0.7);
+    defer allocator.free(streaming);
+    const blocking = try buildChatRequestBody(allocator, req, "claude-3-opus", 0.7);
+    defer allocator.free(blocking);
+    // Both should contain the model and message content
+    try std.testing.expect(std.mem.indexOf(u8, streaming, "claude-3-opus") != null);
+    try std.testing.expect(std.mem.indexOf(u8, streaming, "hello") != null);
+    try std.testing.expect(std.mem.indexOf(u8, streaming, "Be helpful") != null);
+    // Non-streaming should NOT have stream:true
+    try std.testing.expect(std.mem.indexOf(u8, blocking, "\"stream\":true") == null);
+}
+
+test "supportsStreamingImpl returns true" {
+    var p = AnthropicProvider.init(std.testing.allocator, "key", null);
+    const prov = p.provider();
+    try std.testing.expect(prov.supportsStreaming());
+}
+
+test "vtable stream_chat is not null" {
+    try std.testing.expect(AnthropicProvider.vtable.stream_chat != null);
+}
+
+test "vtable supports_streaming is not null" {
+    try std.testing.expect(AnthropicProvider.vtable.supports_streaming != null);
 }

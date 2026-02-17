@@ -9,6 +9,7 @@ pub const openrouter = @import("openrouter.zig");
 pub const compatible = @import("compatible.zig");
 pub const reliable = @import("reliable.zig");
 pub const router = @import("router.zig");
+pub const sse = @import("sse.zig");
 
 // ════════════════════════════════════════════════════════════════════════════
 // Core Types
@@ -99,6 +100,45 @@ pub const ChatResponse = struct {
     }
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// Streaming Types
+// ════════════════════════════════════════════════════════════════════════════
+
+/// A single chunk of streamed output.
+pub const StreamChunk = struct {
+    delta: []const u8,
+    is_final: bool,
+    token_count: u32,
+
+    /// Create a text delta chunk with estimated token count.
+    pub fn textDelta(text: []const u8) StreamChunk {
+        return .{
+            .delta = text,
+            .is_final = false,
+            .token_count = @intCast((text.len + 3) / 4),
+        };
+    }
+
+    /// Create a final (end-of-stream) chunk.
+    pub fn finalChunk() StreamChunk {
+        return .{
+            .delta = "",
+            .is_final = true,
+            .token_count = 0,
+        };
+    }
+};
+
+/// Callback invoked for each streaming chunk.
+pub const StreamCallback = *const fn (ctx: *anyopaque, chunk: StreamChunk) void;
+
+/// Result of a streaming chat call (accumulated after stream completes).
+pub const StreamChatResult = struct {
+    content: ?[]const u8 = null,
+    usage: TokenUsage = .{},
+    model: []const u8 = "",
+};
+
 /// Tool specification for function-calling APIs.
 pub const ToolSpec = struct {
     name: []const u8,
@@ -180,6 +220,16 @@ pub const Provider = struct {
         chat_with_tools: ?*const fn (ptr: *anyopaque, allocator: std.mem.Allocator, req: ChatRequest) anyerror!ChatResponse = null,
         /// Optional: returns true if provider supports streaming. Default: false.
         supports_streaming: ?*const fn (ptr: *anyopaque) bool = null,
+        /// Optional: streaming chat. Default: null (falls back to chat() with single chunk).
+        stream_chat: ?*const fn (
+            ptr: *anyopaque,
+            allocator: std.mem.Allocator,
+            request: ChatRequest,
+            model: []const u8,
+            temperature: f64,
+            callback: StreamCallback,
+            callback_ctx: *anyopaque,
+        ) anyerror!StreamChatResult = null,
     };
 
     pub fn chatWithSystem(
@@ -230,6 +280,34 @@ pub const Provider = struct {
     pub fn chatWithTools(self: Provider, allocator: std.mem.Allocator, req: ChatRequest) !ChatResponse {
         if (self.vtable.chat_with_tools) |f| return f(self.ptr, allocator, req);
         return self.chat(allocator, req, req.model, req.temperature);
+    }
+
+    /// Streaming chat. If vtable slot is null, falls back to chat() and emits a single chunk + final.
+    pub fn streamChat(
+        self: Provider,
+        allocator: std.mem.Allocator,
+        request: ChatRequest,
+        model: []const u8,
+        temperature: f64,
+        callback: StreamCallback,
+        callback_ctx: *anyopaque,
+    ) !StreamChatResult {
+        if (self.vtable.stream_chat) |f| {
+            return f(self.ptr, allocator, request, model, temperature, callback, callback_ctx);
+        }
+        // Fallback: blocking chat() → single chunk + final
+        const response = try self.chat(allocator, request, model, temperature);
+        if (response.content) |content| {
+            if (content.len > 0) {
+                callback(callback_ctx, StreamChunk.textDelta(content));
+            }
+        }
+        callback(callback_ctx, StreamChunk.finalChunk());
+        return .{
+            .content = response.content,
+            .usage = response.usage,
+            .model = response.model,
+        };
     }
 };
 
@@ -1277,6 +1355,65 @@ test "detectProviderByApiKey unknown" {
 
 test "detectProviderByApiKey short key" {
     try std.testing.expect(detectProviderByApiKey("ab") == .unknown);
+}
+
+test "StreamChatResult defaults" {
+    const result = StreamChatResult{};
+    try std.testing.expect(result.content == null);
+    try std.testing.expect(result.usage.prompt_tokens == 0);
+    try std.testing.expect(result.usage.completion_tokens == 0);
+    try std.testing.expectEqualStrings("", result.model);
+}
+
+test "Provider.streamChat fallback emits single chunk and final" {
+    const TestCtx = struct {
+        chunks_count: usize = 0,
+        got_content: bool = false,
+        got_final: bool = false,
+
+        fn onChunk(ctx_ptr: *anyopaque, chunk: StreamChunk) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx_ptr));
+            self.chunks_count += 1;
+            if (!chunk.is_final and chunk.delta.len > 0) self.got_content = true;
+            if (chunk.is_final) self.got_final = true;
+        }
+    };
+
+    const DummyProvider = struct {
+        fn chatWithSystem(_: *anyopaque, _: std.mem.Allocator, _: ?[]const u8, _: []const u8, _: []const u8, _: f64) anyerror![]const u8 {
+            return "";
+        }
+        fn chat(_: *anyopaque, _: std.mem.Allocator, _: ChatRequest, _: []const u8, _: f64) anyerror!ChatResponse {
+            return .{ .content = "hello from fallback", .model = "test" };
+        }
+        fn supNativeTools(_: *anyopaque) bool {
+            return false;
+        }
+        fn getName(_: *anyopaque) []const u8 {
+            return "dummy";
+        }
+        fn deinitFn(_: *anyopaque) void {}
+    };
+
+    var dummy: u8 = 0;
+    const vtable_val = Provider.VTable{
+        .chatWithSystem = DummyProvider.chatWithSystem,
+        .chat = DummyProvider.chat,
+        .supportsNativeTools = DummyProvider.supNativeTools,
+        .getName = DummyProvider.getName,
+        .deinit = DummyProvider.deinitFn,
+    };
+    const prov = Provider{ .ptr = @ptrCast(&dummy), .vtable = &vtable_val };
+
+    var ctx = TestCtx{};
+    const msgs = [_]ChatMessage{ChatMessage.user("test")};
+    const req = ChatRequest{ .messages = &msgs, .model = "test" };
+    const result = try prov.streamChat(std.testing.allocator, req, "test", 0.7, TestCtx.onChunk, @ptrCast(&ctx));
+
+    try std.testing.expect(ctx.got_content);
+    try std.testing.expect(ctx.got_final);
+    try std.testing.expect(ctx.chunks_count == 2);
+    try std.testing.expectEqualStrings("hello from fallback", result.content.?);
 }
 
 test {
