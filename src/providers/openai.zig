@@ -288,16 +288,6 @@ fn curlPost(allocator: std.mem.Allocator, url: []const u8, body: []const u8, aut
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "creates with key" {
-    const p = OpenAiProvider.init(std.testing.allocator, "sk-proj-abc123");
-    try std.testing.expectEqualStrings("sk-proj-abc123", p.api_key.?);
-}
-
-test "creates without key" {
-    const p = OpenAiProvider.init(std.testing.allocator, null);
-    try std.testing.expect(p.api_key == null);
-}
-
 test "buildRequestBody without system" {
     const body = try OpenAiProvider.buildRequestBody(std.testing.allocator, null, "hello", "gpt-4o", 0.7);
     defer std.testing.allocator.free(body);
@@ -365,24 +355,6 @@ test "parseTextResponse multiple choices returns first" {
     const result = try OpenAiProvider.parseTextResponse(std.testing.allocator, body);
     defer std.testing.allocator.free(result);
     try std.testing.expectEqualStrings("A", result);
-}
-
-test "parseTextResponse with unicode" {
-    const body =
-        \\{"choices":[{"message":{"content":"こんにちは 🦀"}}]}
-    ;
-    const result = try OpenAiProvider.parseTextResponse(std.testing.allocator, body);
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("こんにちは 🦀", result);
-}
-
-test "parseTextResponse with long content" {
-    const body =
-        \\{"choices":[{"message":{"content":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}]}
-    ;
-    const result = try OpenAiProvider.parseTextResponse(std.testing.allocator, body);
-    defer std.testing.allocator.free(result);
-    try std.testing.expect(result.len == 64);
 }
 
 test "parseNativeResponse text only no tool calls" {

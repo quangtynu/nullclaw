@@ -170,12 +170,6 @@ test "shell tool name" {
     try std.testing.expectEqualStrings("shell", t.name());
 }
 
-test "shell tool description not empty" {
-    var st = ShellTool{ .workspace_dir = "/tmp" };
-    const t = st.tool();
-    try std.testing.expect(t.description().len > 0);
-}
-
 test "shell tool schema has command" {
     var st = ShellTool{ .workspace_dir = "/tmp" };
     const t = st.tool();

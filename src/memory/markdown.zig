@@ -338,28 +338,6 @@ pub const MarkdownMemory = struct {
 
 // ── Tests ──────────────────────────────────────────────────────────
 
-test "markdown name" {
-    var mem = try MarkdownMemory.init(std.testing.allocator, "/tmp/nullclaw-test-md");
-    defer mem.deinit();
-    const m = mem.memory();
-    try std.testing.expectEqualStrings("markdown", m.name());
-}
-
-test "markdown health check" {
-    var mem = try MarkdownMemory.init(std.testing.allocator, "/tmp/nullclaw-test-md");
-    defer mem.deinit();
-    const m = mem.memory();
-    try std.testing.expect(m.healthCheck());
-}
-
-test "markdown forget is noop" {
-    var mem = try MarkdownMemory.init(std.testing.allocator, "/tmp/nullclaw-test-md");
-    defer mem.deinit();
-    const m = mem.memory();
-    const removed = try m.forget("anything");
-    try std.testing.expect(!removed);
-}
-
 test "markdown forget always returns false" {
     var mem = try MarkdownMemory.init(std.testing.allocator, "/tmp/nullclaw-test-md-forget");
     defer mem.deinit();

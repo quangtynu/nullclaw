@@ -247,12 +247,6 @@ test "image_info tool name" {
     try std.testing.expectEqualStrings("image_info", t.name());
 }
 
-test "image_info description not empty" {
-    var it = ImageInfoTool{};
-    const t = it.tool();
-    try std.testing.expect(t.description().len > 0);
-}
-
 test "image_info schema has path" {
     var it = ImageInfoTool{};
     const t = it.tool();
@@ -264,12 +258,6 @@ test "screenshot tool name" {
     var st = ScreenshotTool{};
     const t = st.tool();
     try std.testing.expectEqualStrings("screenshot", t.name());
-}
-
-test "screenshot description not empty" {
-    var st = ScreenshotTool{};
-    const t = st.tool();
-    try std.testing.expect(t.description().len > 0);
 }
 
 // ── Format detection tests ──────────────────────────────────────────

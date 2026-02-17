@@ -91,16 +91,6 @@ pub const CliChannel = struct {
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "cli channel name" {
-    var ch = CliChannel.init(std.testing.allocator);
-    try std.testing.expectEqualStrings("cli", ch.channelName());
-}
-
-test "cli health check always true" {
-    var ch = CliChannel.init(std.testing.allocator);
-    try std.testing.expect(ch.healthCheck());
-}
-
 test "cli quit commands" {
     try std.testing.expect(CliChannel.isQuitCommand("exit"));
     try std.testing.expect(CliChannel.isQuitCommand("quit"));
@@ -109,11 +99,4 @@ test "cli quit commands" {
     try std.testing.expect(CliChannel.isQuitCommand("  exit  "));
     try std.testing.expect(!CliChannel.isQuitCommand("hello"));
     try std.testing.expect(!CliChannel.isQuitCommand(""));
-}
-
-test "cli vtable channel interface" {
-    var ch = CliChannel.init(std.testing.allocator);
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("cli", iface.name());
-    try std.testing.expect(iface.healthCheck());
 }

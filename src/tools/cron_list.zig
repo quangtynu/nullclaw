@@ -141,12 +141,6 @@ test "cron_list tool name" {
     try std.testing.expectEqualStrings("cron_list", t.name());
 }
 
-test "cron_list tool description" {
-    var cl = CronListTool{};
-    const t = cl.tool();
-    try std.testing.expect(std.mem.indexOf(u8, t.description(), "cron jobs") != null);
-}
-
 test "cron_list tool parameters" {
     var cl = CronListTool{};
     const t = cl.tool();

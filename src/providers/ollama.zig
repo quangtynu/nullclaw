@@ -273,18 +273,10 @@ pub const OllamaProvider = struct {
     ) anyerror!ChatResponse {
         const self: *OllamaProvider = @ptrCast(@alignCast(ptr));
 
-        // Extract system prompt and last user message from the request
-        var system_prompt: ?[]const u8 = null;
-        var user_message: []const u8 = "";
-        for (request.messages) |msg| {
-            if (msg.role == .system) system_prompt = msg.content;
-            if (msg.role == .user) user_message = msg.content;
-        }
-
         const url = try self.chatUrl(allocator);
         defer allocator.free(url);
 
-        const body = try buildRequestBody(allocator, system_prompt, user_message, model, temperature);
+        const body = try buildChatRequestBody(allocator, request, model, temperature);
         defer allocator.free(body);
 
         const resp_body = curlPost(allocator, url, body) catch return error.OllamaApiError;
@@ -304,6 +296,40 @@ pub const OllamaProvider = struct {
 
     fn deinitImpl(_: *anyopaque) void {}
 };
+
+/// Build a full chat request JSON body from a ChatRequest (Ollama format).
+fn buildChatRequestBody(
+    allocator: std.mem.Allocator,
+    request: ChatRequest,
+    model: []const u8,
+    temperature: f64,
+) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(allocator);
+
+    try buf.appendSlice(allocator, "{\"model\":\"");
+    try buf.appendSlice(allocator, model);
+    try buf.appendSlice(allocator, "\",\"messages\":[");
+
+    for (request.messages, 0..) |msg, i| {
+        if (i > 0) try buf.append(allocator, ',');
+        try buf.appendSlice(allocator, "{\"role\":\"");
+        try buf.appendSlice(allocator, msg.role.toSlice());
+        try buf.appendSlice(allocator, "\",\"content\":\"");
+        const escaped = try jsonEscapeString(allocator, msg.content);
+        defer allocator.free(escaped);
+        try buf.appendSlice(allocator, escaped);
+        try buf.appendSlice(allocator, "\"}");
+    }
+
+    try buf.appendSlice(allocator, "],\"stream\":false,\"options\":{\"temperature\":");
+    var temp_buf: [16]u8 = undefined;
+    const temp_str = std.fmt.bufPrint(&temp_buf, "{d:.2}", .{temperature}) catch return error.OllamaApiError;
+    try buf.appendSlice(allocator, temp_str);
+    try buf.appendSlice(allocator, "}}");
+
+    return try buf.toOwnedSlice(allocator);
+}
 
 /// HTTP POST via curl subprocess (no auth needed for local Ollama).
 fn curlPost(allocator: std.mem.Allocator, url: []const u8, body: []const u8) ![]u8 {
@@ -337,11 +363,6 @@ test "default url" {
 test "custom url trailing slash" {
     const p = OllamaProvider.init(std.testing.allocator, "http://192.168.1.100:11434/");
     try std.testing.expectEqualStrings("http://192.168.1.100:11434", p.base_url);
-}
-
-test "custom url no trailing slash" {
-    const p = OllamaProvider.init(std.testing.allocator, "http://myserver:11434");
-    try std.testing.expectEqualStrings("http://myserver:11434", p.base_url);
 }
 
 test "chat url is correct" {

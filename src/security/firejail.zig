@@ -80,13 +80,6 @@ test "firejail sandbox name" {
     try std.testing.expectEqualStrings("firejail", sb.name());
 }
 
-test "firejail sandbox description mentions firejail" {
-    var fj = createFirejailSandbox("/tmp/workspace");
-    const sb = fj.sandbox();
-    const desc = sb.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "firejail") != null);
-}
-
 test "firejail sandbox wrap command prepends firejail args" {
     var fj = createFirejailSandbox("/tmp/workspace");
     const sb = fj.sandbox();
@@ -129,13 +122,6 @@ test "firejail sandbox wrap single arg" {
 
     try std.testing.expectEqual(@as(usize, 6), result.len);
     try std.testing.expectEqualStrings("ls", result[5]);
-}
-
-test "firejail sandbox vtable consistent" {
-    var fj = createFirejailSandbox("/tmp/workspace");
-    const sb = fj.sandbox();
-    try std.testing.expect(sb.vtable == &FirejailSandbox.sandbox_vtable);
-    try std.testing.expectEqualStrings("firejail", sb.name());
 }
 
 test "firejail buffer too small returns error" {

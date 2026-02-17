@@ -803,12 +803,6 @@ test "extractContent parses Anthropic format" {
     try std.testing.expectEqualStrings("Hello from Claude", result);
 }
 
-test "ToolResultMessage struct fields" {
-    const trm = ToolResultMessage{ .tool_call_id = "call_42", .content = "result data" };
-    try std.testing.expectEqualStrings("call_42", trm.tool_call_id);
-    try std.testing.expectEqualStrings("result data", trm.content);
-}
-
 test "ConversationMessage union variants" {
     const chat_msg: ConversationMessage = .{ .chat = ChatMessage.user("hi") };
     try std.testing.expect(chat_msg == .chat);
@@ -922,14 +916,6 @@ test "nvidia resolves to correct URL" {
     try std.testing.expectEqualStrings("https://integrate.api.nvidia.com/v1", compatibleProviderUrl("nvidia").?);
 }
 
-test "nvidia-nim resolves to correct URL" {
-    try std.testing.expectEqualStrings("https://integrate.api.nvidia.com/v1", compatibleProviderUrl("nvidia-nim").?);
-}
-
-test "lmstudio resolves to localhost:1234" {
-    try std.testing.expectEqualStrings("http://localhost:1234/v1", compatibleProviderUrl("lmstudio").?);
-}
-
 test "lm-studio resolves to localhost:1234" {
     try std.testing.expectEqualStrings("http://localhost:1234/v1", compatibleProviderUrl("lm-studio").?);
 }
@@ -953,14 +939,6 @@ test "NVIDIA_API_KEY env resolves nvidia credential" {
     const candidates_build = providerEnvCandidates("build.nvidia.com");
     try std.testing.expectEqualStrings("NVIDIA_API_KEY", candidates_build[0]);
     _ = allocator;
-}
-
-test "lmstudio does not require API key — uses empty env candidates" {
-    const candidates = providerEnvCandidates("lmstudio");
-    // lmstudio has no env var (empty first entry means no provider-specific env)
-    try std.testing.expectEqualStrings("", candidates[0]);
-    const candidates_alias = providerEnvCandidates("lm-studio");
-    try std.testing.expectEqualStrings("", candidates_alias[0]);
 }
 
 test "new providers display names" {

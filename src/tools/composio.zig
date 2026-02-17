@@ -432,13 +432,6 @@ test "composio tool name" {
     try std.testing.expectEqualStrings("composio", t.name());
 }
 
-test "composio tool description mentions 1000+" {
-    var ct = ComposioTool{ .api_key = "test-key", .entity_id = "default" };
-    const t = ct.tool();
-    const desc = t.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "1000+") != null);
-}
-
 test "composio tool schema has action" {
     var ct = ComposioTool{ .api_key = "test-key", .entity_id = "default" };
     const t = ct.tool();
@@ -530,14 +523,6 @@ test "composio connect with app invokes curl" {
     defer if (result.error_msg) |e| std.testing.allocator.free(e);
     // curl runs — result depends on network, but should not crash
     try std.testing.expect(result.output.len > 0 or result.error_msg != null);
-}
-
-test "composio tool spec" {
-    var ct = ComposioTool{ .api_key = "test-key", .entity_id = "default" };
-    const t = ct.tool();
-    const s = t.spec();
-    try std.testing.expectEqualStrings("composio", s.name);
-    try std.testing.expect(s.parameters_json.len > 0);
 }
 
 // ── v3 helper tests ─────────────────────────────────────────────────

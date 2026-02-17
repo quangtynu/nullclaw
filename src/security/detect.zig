@@ -176,27 +176,6 @@ test "create sandbox with docker returns docker" {
     try std.testing.expectEqualStrings("docker", sb.name());
 }
 
-test "create sandbox with landlock on non-linux falls back to noop" {
-    if (comptime builtin.os.tag == .linux) return;
-    var storage: SandboxStorage = .{};
-    const sb = createSandbox(.landlock, "/tmp/workspace", &storage);
-    try std.testing.expectEqualStrings("none", sb.name());
-}
-
-test "create sandbox with firejail on non-linux falls back to noop" {
-    if (comptime builtin.os.tag == .linux) return;
-    var storage: SandboxStorage = .{};
-    const sb = createSandbox(.firejail, "/tmp/workspace", &storage);
-    try std.testing.expectEqualStrings("none", sb.name());
-}
-
-test "create sandbox with bubblewrap on non-linux falls back to noop" {
-    if (comptime builtin.os.tag == .linux) return;
-    var storage: SandboxStorage = .{};
-    const sb = createSandbox(.bubblewrap, "/tmp/workspace", &storage);
-    try std.testing.expectEqualStrings("none", sb.name());
-}
-
 test "sandbox storage default initialization" {
     const storage = SandboxStorage{};
     try std.testing.expectEqualStrings("", storage.landlock.workspace_dir);

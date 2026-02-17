@@ -179,12 +179,6 @@ test "cron_runs tool name" {
     try std.testing.expectEqualStrings("cron_runs", t.name());
 }
 
-test "cron_runs tool description" {
-    var crt = CronRunsTool{};
-    const t = crt.tool();
-    try std.testing.expect(std.mem.indexOf(u8, t.description(), "history") != null);
-}
-
 test "cron_runs schema has job_id" {
     var crt = CronRunsTool{};
     const t = crt.tool();

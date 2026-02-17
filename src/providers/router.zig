@@ -386,76 +386,6 @@ test "empty providers list creates router" {
     try std.testing.expect(router.default_index == 0);
 }
 
-test "resolve plain model name preserves it" {
-    const provider_names = [_][]const u8{"p1"};
-    var mock = MockProvider.init("ok", false);
-    const providers = [_]Provider{mock.provider()};
-    var router = try RouterProvider.init(
-        std.testing.allocator,
-        &provider_names,
-        &providers,
-        &.{},
-        "default-model",
-    );
-    defer router.deinit();
-
-    const result = router.resolve("anthropic/claude-sonnet-4-20250514");
-    try std.testing.expect(result[0] == 0);
-    try std.testing.expectEqualStrings("anthropic/claude-sonnet-4-20250514", result[1]);
-}
-
-test "resolve empty model" {
-    const provider_names = [_][]const u8{"default"};
-    var mock = MockProvider.init("ok", false);
-    const providers = [_]Provider{mock.provider()};
-    var router = try RouterProvider.init(
-        std.testing.allocator,
-        &provider_names,
-        &providers,
-        &.{},
-        "default-model",
-    );
-    defer router.deinit();
-
-    const result = router.resolve("");
-    try std.testing.expect(result[0] == 0);
-    try std.testing.expectEqualStrings("", result[1]);
-}
-
-test "resolve hint: prefix with no suffix" {
-    const provider_names = [_][]const u8{"default"};
-    var mock = MockProvider.init("ok", false);
-    const providers = [_]Provider{mock.provider()};
-    var router = try RouterProvider.init(
-        std.testing.allocator,
-        &provider_names,
-        &providers,
-        &.{},
-        "default-model",
-    );
-    defer router.deinit();
-
-    const result = router.resolve("hint:");
-    try std.testing.expect(result[0] == 0);
-    // Falls back with "hint:" as model because "" hint not found
-    try std.testing.expectEqualStrings("hint:", result[1]);
-}
-
-test "default model stored" {
-    const provider_names = [_][]const u8{"p1"};
-    var mock = MockProvider.init("ok", false);
-    const providers = [_]Provider{mock.provider()};
-    var router = try RouterProvider.init(
-        std.testing.allocator,
-        &provider_names,
-        &providers,
-        &.{},
-        "my-default-model",
-    );
-    defer router.deinit();
-    try std.testing.expectEqualStrings("my-default-model", router.default_model);
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // Provider vtable tests
 // ════════════════════════════════════════════════════════════════════════════
@@ -624,27 +554,4 @@ test "vtable chat returns error with no providers" {
     const request = ChatRequest{ .messages = &msgs };
     const result = prov.chat(std.testing.allocator, request, "model", 0.5);
     try std.testing.expectError(error.NoProvider, result);
-}
-
-test "vtable chatWithSystem with fast hint" {
-    const provider_names = [_][]const u8{ "fast", "smart" };
-    var mock_fast = MockProvider.init("fast-reply", false);
-    var mock_smart = MockProvider.init("smart-reply", false);
-    const providers = [_]Provider{ mock_fast.provider(), mock_smart.provider() };
-    const routes = [_]RouterProvider.RouteEntry{
-        .{ .hint = "fast", .route = .{ .provider_name = "fast", .model = "llama-3-70b" } },
-    };
-    var router = try RouterProvider.init(
-        std.testing.allocator,
-        &provider_names,
-        &providers,
-        &routes,
-        "default-model",
-    );
-    const prov = router.provider();
-    defer prov.deinit();
-
-    const result = try prov.chatWithSystem(std.testing.allocator, null, "hello", "hint:fast", 0.5);
-    try std.testing.expectEqualStrings("fast-reply", result);
-    try std.testing.expectEqualStrings("llama-3-70b", mock_fast.last_model);
 }

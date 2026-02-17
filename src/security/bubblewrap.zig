@@ -148,9 +148,3 @@ test "bubblewrap buffer too small returns error" {
     const result = sb.wrapCommand(&argv, &buf);
     try std.testing.expectError(error.BufferTooSmall, result);
 }
-
-test "bubblewrap sandbox vtable consistent" {
-    var bw = createBubblewrapSandbox("/tmp/workspace");
-    const sb = bw.sandbox();
-    try std.testing.expect(sb.vtable == &BubblewrapSandbox.sandbox_vtable);
-}

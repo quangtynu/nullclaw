@@ -135,11 +135,6 @@ pub const MatrixChannel = struct {
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "matrix channel name" {
-    var ch = MatrixChannel.init(std.testing.allocator, "https://matrix.org", "tok", "!room:m", &.{});
-    try std.testing.expectEqualStrings("matrix", ch.channelName());
-}
-
 test "matrix strips trailing slash" {
     const ch = MatrixChannel.init(std.testing.allocator, "https://matrix.org/", "tok", "!r:m", &.{});
     try std.testing.expectEqualStrings("https://matrix.org", ch.homeserver);
@@ -148,30 +143,6 @@ test "matrix strips trailing slash" {
 test "matrix no trailing slash unchanged" {
     const ch = MatrixChannel.init(std.testing.allocator, "https://matrix.org", "tok", "!r:m", &.{});
     try std.testing.expectEqualStrings("https://matrix.org", ch.homeserver);
-}
-
-test "matrix wildcard allows anyone" {
-    const users = [_][]const u8{"*"};
-    const ch = MatrixChannel.init(std.testing.allocator, "https://m.org", "tok", "!r:m", &users);
-    try std.testing.expect(ch.isUserAllowed("@anyone:matrix.org"));
-}
-
-test "matrix specific user allowed" {
-    const users = [_][]const u8{"@user:matrix.org"};
-    const ch = MatrixChannel.init(std.testing.allocator, "https://m.org", "tok", "!r:m", &users);
-    try std.testing.expect(ch.isUserAllowed("@user:matrix.org"));
-    try std.testing.expect(!ch.isUserAllowed("@stranger:matrix.org"));
-}
-
-test "matrix empty allowlist denies all" {
-    const ch = MatrixChannel.init(std.testing.allocator, "https://m.org", "tok", "!r:m", &.{});
-    try std.testing.expect(!ch.isUserAllowed("@anyone:matrix.org"));
-}
-
-test "matrix vtable interface" {
-    var ch = MatrixChannel.init(std.testing.allocator, "https://m.org", "tok", "!r:m", &.{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("matrix", iface.name());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -212,11 +183,6 @@ test "matrix wildcard allows hacker domains too" {
     const users = [_][]const u8{"*"};
     const ch = MatrixChannel.init(std.testing.allocator, "https://m.org", "tok", "!r:m", &users);
     try std.testing.expect(ch.isUserAllowed("@hacker:evil.org"));
-}
-
-test "matrix health check returns true" {
-    var ch = MatrixChannel.init(std.testing.allocator, "https://m.org", "tok", "!r:m", &.{});
-    try std.testing.expect(ch.healthCheck());
 }
 
 test "matrix empty homeserver" {

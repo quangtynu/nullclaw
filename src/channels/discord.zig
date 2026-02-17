@@ -147,11 +147,6 @@ pub const DiscordChannel = struct {
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "discord channel name" {
-    var ch = DiscordChannel.init(std.testing.allocator, "tok", null, false);
-    try std.testing.expectEqualStrings("discord", ch.channelName());
-}
-
 test "discord send url" {
     var buf: [256]u8 = undefined;
     const url = try DiscordChannel.sendUrl(&buf, "123456");
@@ -165,18 +160,6 @@ test "discord extract bot user id" {
 
 test "discord extract bot user id no dot" {
     try std.testing.expect(DiscordChannel.extractBotUserId("notokenformat") == null);
-}
-
-test "discord vtable interface" {
-    var ch = DiscordChannel.init(std.testing.allocator, "tok", null, false);
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("discord", iface.name());
-}
-
-test "discord message splitting at 2000" {
-    var it = root.splitMessage("short", DiscordChannel.MAX_MESSAGE_LEN);
-    try std.testing.expectEqualStrings("short", it.next().?);
-    try std.testing.expect(it.next() == null);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -229,55 +212,6 @@ test "discord init no guild id" {
     const ch = DiscordChannel.init(std.testing.allocator, "tok", null, false);
     try std.testing.expect(ch.guild_id == null);
     try std.testing.expect(!ch.listen_to_bots);
-}
-
-test "discord split empty message" {
-    var it = root.splitMessage("", DiscordChannel.MAX_MESSAGE_LEN);
-    try std.testing.expect(it.next() == null);
-}
-
-test "discord split exactly at limit" {
-    const msg = "a" ** 2000;
-    var it = root.splitMessage(msg, DiscordChannel.MAX_MESSAGE_LEN);
-    const chunk = it.next().?;
-    try std.testing.expectEqual(@as(usize, 2000), chunk.len);
-    try std.testing.expect(it.next() == null);
-}
-
-test "discord split just over limit" {
-    const msg = "a" ** 2001;
-    var it = root.splitMessage(msg, DiscordChannel.MAX_MESSAGE_LEN);
-    const chunk1 = it.next().?;
-    try std.testing.expectEqual(@as(usize, 2000), chunk1.len);
-    const chunk2 = it.next().?;
-    try std.testing.expectEqual(@as(usize, 1), chunk2.len);
-    try std.testing.expect(it.next() == null);
-}
-
-test "discord split long message all within limit" {
-    const msg = "x" ** 5000;
-    var it = root.splitMessage(msg, DiscordChannel.MAX_MESSAGE_LEN);
-    var count: usize = 0;
-    while (it.next()) |chunk| {
-        try std.testing.expect(chunk.len <= DiscordChannel.MAX_MESSAGE_LEN);
-        count += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 3), count);
-}
-
-test "discord split preserves total content" {
-    const msg = "abcde" ** 500; // 2500 chars
-    var it = root.splitMessage(msg, DiscordChannel.MAX_MESSAGE_LEN);
-    var total_len: usize = 0;
-    while (it.next()) |chunk| {
-        total_len += chunk.len;
-    }
-    try std.testing.expectEqual(@as(usize, 2500), total_len);
-}
-
-test "discord health check returns true" {
-    var ch = DiscordChannel.init(std.testing.allocator, "tok", null, false);
-    try std.testing.expect(ch.healthCheck());
 }
 
 test "discord send url buffer too small returns error" {

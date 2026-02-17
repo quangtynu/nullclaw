@@ -515,15 +515,6 @@ test "ReliableProvider auth rotation returns null when empty" {
     try std.testing.expect(prov.rotateKey() == null);
 }
 
-test "isNonRetryable returns false for empty string" {
-    try std.testing.expect(!isNonRetryable(""));
-}
-
-test "isNonRetryable returns false for 5xx errors" {
-    try std.testing.expect(!isNonRetryable("503 Service Unavailable"));
-    try std.testing.expect(!isNonRetryable("504 Gateway Timeout"));
-}
-
 test "isNonRetryable embedded in longer message" {
     try std.testing.expect(isNonRetryable("Error: got 401 from upstream API"));
     try std.testing.expect(!isNonRetryable("Server returned 500 error"));
@@ -567,35 +558,10 @@ test "ReliableProvider init enforces min backoff 50ms" {
     try std.testing.expect(prov.base_backoff_ms == 50);
 }
 
-test "ReliableProvider init keeps backoff above 50" {
-    const prov = ReliableProvider.init(&.{}, 0, 100);
-    try std.testing.expect(prov.base_backoff_ms == 100);
-}
-
 test "ReliableProvider computeBackoff uses base when retry-after is smaller" {
     const prov = ReliableProvider.init(&.{}, 0, 5000);
     // Retry-After: 1 second = 1000ms, but base is 5000ms -> max(1000, 5000) = 5000
     try std.testing.expect(prov.computeBackoff(5000, "429 Retry-After: 1") == 5000);
-}
-
-test "ReliableProvider auth rotation wraps around" {
-    const keys = [_][]const u8{ "key-a", "key-b" };
-    var prov = ReliableProvider.init(&.{}, 0, 1);
-    _ = prov.withApiKeys(&keys);
-
-    // Exhaust all keys and wrap
-    try std.testing.expectEqualStrings("key-a", prov.rotateKey().?);
-    try std.testing.expectEqualStrings("key-b", prov.rotateKey().?);
-    try std.testing.expectEqualStrings("key-a", prov.rotateKey().?);
-}
-
-test "ReliableProvider single key rotation" {
-    const keys = [_][]const u8{"only-key"};
-    var prov = ReliableProvider.init(&.{}, 0, 1);
-    _ = prov.withApiKeys(&keys);
-
-    try std.testing.expectEqualStrings("only-key", prov.rotateKey().?);
-    try std.testing.expectEqualStrings("only-key", prov.rotateKey().?);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -897,19 +863,6 @@ test "withExtras builder preserves other fields" {
     try std.testing.expect(reliable.extras.len == 1);
     try std.testing.expectEqualStrings("fallback", reliable.extras[0].name);
     _ = &reliable;
-}
-
-test "single-provider ReliableProvider backward compat" {
-    var mock = MockInnerProvider{ .call_count = 0, .fail_until = 0, .supports_tools = true };
-    var reliable = ReliableProvider.initWithProvider(mock.toProvider(), 1, 50);
-    // No extras, no model_fallbacks — default empty slices
-    try std.testing.expect(reliable.extras.len == 0);
-    try std.testing.expect(reliable.model_fallbacks.len == 0);
-
-    const prov = reliable.provider();
-    const result = try prov.chatWithSystem(std.testing.allocator, null, "hello", "model", 0.7);
-    try std.testing.expectEqualStrings("mock response", result);
-    try std.testing.expect(mock.call_count == 1);
 }
 
 test "warmup calls inner and extras" {

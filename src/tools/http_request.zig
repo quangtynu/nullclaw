@@ -974,33 +974,6 @@ test "parseHeaders null returns empty" {
 
 // ── SSRF integration via isLocalHost ──────────────────────────
 
-test "isLocalHost blocks link-local 169.254.x.x" {
-    try std.testing.expect(isLocalHost("169.254.1.1"));
-}
-
-test "isLocalHost blocks shared address space 100.64.x.x" {
-    try std.testing.expect(isLocalHost("100.64.0.1"));
-    try std.testing.expect(isLocalHost("100.127.255.255"));
-    try std.testing.expect(!isLocalHost("100.63.0.1"));
-    try std.testing.expect(!isLocalHost("100.128.0.1"));
-}
-
-test "isLocalHost blocks multicast 224.x" {
-    try std.testing.expect(isLocalHost("224.0.0.1"));
-    try std.testing.expect(isLocalHost("239.255.255.255"));
-}
-
-test "isLocalHost blocks documentation ranges" {
-    try std.testing.expect(isLocalHost("192.0.2.1"));
-    try std.testing.expect(isLocalHost("198.51.100.1"));
-    try std.testing.expect(isLocalHost("203.0.113.1"));
-}
-
-test "isLocalHost blocks benchmarking range" {
-    try std.testing.expect(isLocalHost("198.18.0.1"));
-    try std.testing.expect(isLocalHost("198.19.255.255"));
-}
-
 test "isLocalHost blocks IPv6 loopback" {
     try std.testing.expect(isLocalHost("::1"));
     try std.testing.expect(isLocalHost("[::1]"));

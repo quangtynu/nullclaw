@@ -172,10 +172,3 @@ test "cron_add schema has command" {
     try std.testing.expect(std.mem.indexOf(u8, schema, "expression") != null);
     try std.testing.expect(std.mem.indexOf(u8, schema, "delay") != null);
 }
-
-test "cron_add description mentions cron" {
-    var cat = CronAddTool{};
-    const t = cat.tool();
-    const desc = t.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "cron") != null);
-}

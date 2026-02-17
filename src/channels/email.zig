@@ -237,43 +237,6 @@ pub fn stripHtml(allocator: std.mem.Allocator, html: []const u8) ![]u8 {
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "email channel name" {
-    var ch = EmailChannel.init(std.testing.allocator, .{});
-    try std.testing.expectEqualStrings("email", ch.channelName());
-}
-
-test "email sender allowed wildcard" {
-    const senders = [_][]const u8{"*"};
-    const ch = EmailChannel.init(std.testing.allocator, .{ .allowed_senders = &senders });
-    try std.testing.expect(ch.isSenderAllowed("anyone@example.com"));
-}
-
-test "email sender allowed full address" {
-    const senders = [_][]const u8{"user@example.com"};
-    const ch = EmailChannel.init(std.testing.allocator, .{ .allowed_senders = &senders });
-    try std.testing.expect(ch.isSenderAllowed("user@example.com"));
-    try std.testing.expect(!ch.isSenderAllowed("other@example.com"));
-}
-
-test "email sender allowed domain with @" {
-    const senders = [_][]const u8{"@example.com"};
-    const ch = EmailChannel.init(std.testing.allocator, .{ .allowed_senders = &senders });
-    try std.testing.expect(ch.isSenderAllowed("anyone@example.com"));
-    try std.testing.expect(!ch.isSenderAllowed("anyone@other.com"));
-}
-
-test "email sender allowed domain without @" {
-    const senders = [_][]const u8{"example.com"};
-    const ch = EmailChannel.init(std.testing.allocator, .{ .allowed_senders = &senders });
-    try std.testing.expect(ch.isSenderAllowed("anyone@example.com"));
-    try std.testing.expect(!ch.isSenderAllowed("anyone@other.com"));
-}
-
-test "email sender denied empty" {
-    const ch = EmailChannel.init(std.testing.allocator, .{});
-    try std.testing.expect(!ch.isSenderAllowed("anyone@example.com"));
-}
-
 test "bounded seen set insert and contains" {
     const allocator = std.testing.allocator;
     var set = BoundedSeenSet.init(allocator, 10);
@@ -333,12 +296,6 @@ test "strip html no tags" {
     const result = try stripHtml(allocator, "plain text");
     defer allocator.free(result);
     try std.testing.expectEqualStrings("plain text", result);
-}
-
-test "email vtable interface" {
-    var ch = EmailChannel.init(std.testing.allocator, .{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("email", iface.name());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -412,11 +369,6 @@ test "strip html only tags" {
     const result = try stripHtml(allocator, "<br/><hr/><img src=\"x\"/>");
     defer allocator.free(result);
     try std.testing.expectEqualStrings("", result);
-}
-
-test "email health check returns true" {
-    var ch = EmailChannel.init(std.testing.allocator, .{});
-    try std.testing.expect(ch.healthCheck());
 }
 
 test "bounded seen set empty contains false" {

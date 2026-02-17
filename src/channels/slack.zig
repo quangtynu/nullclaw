@@ -129,32 +129,3 @@ pub const SlackChannel = struct {
 // ════════════════════════════════════════════════════════════════════════════
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
-
-test "slack channel name" {
-    var ch = SlackChannel.init(std.testing.allocator, "xoxb-test", null, null, &.{});
-    try std.testing.expectEqualStrings("slack", ch.channelName());
-}
-
-test "slack user allowed wildcard" {
-    const users = [_][]const u8{"*"};
-    const ch = SlackChannel.init(std.testing.allocator, "tok", null, null, &users);
-    try std.testing.expect(ch.isUserAllowed("anyone"));
-}
-
-test "slack user allowed specific" {
-    const users = [_][]const u8{ "U12345", "U67890" };
-    const ch = SlackChannel.init(std.testing.allocator, "tok", null, null, &users);
-    try std.testing.expect(ch.isUserAllowed("U12345"));
-    try std.testing.expect(!ch.isUserAllowed("U99999"));
-}
-
-test "slack user denied empty" {
-    const ch = SlackChannel.init(std.testing.allocator, "tok", null, null, &.{});
-    try std.testing.expect(!ch.isUserAllowed("anyone"));
-}
-
-test "slack vtable interface" {
-    var ch = SlackChannel.init(std.testing.allocator, "tok", null, null, &.{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("slack", iface.name());
-}

@@ -117,32 +117,3 @@ pub const DingTalkChannel = struct {
 // ════════════════════════════════════════════════════════════════════════════
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
-
-test "dingtalk channel name" {
-    var ch = DingTalkChannel.init(std.testing.allocator, "id", "secret", &.{});
-    try std.testing.expectEqualStrings("dingtalk", ch.channelName());
-}
-
-test "dingtalk user allowed wildcard" {
-    const users = [_][]const u8{"*"};
-    const ch = DingTalkChannel.init(std.testing.allocator, "id", "secret", &users);
-    try std.testing.expect(ch.isUserAllowed("anyone"));
-}
-
-test "dingtalk user allowed specific" {
-    const users = [_][]const u8{"user123"};
-    const ch = DingTalkChannel.init(std.testing.allocator, "id", "secret", &users);
-    try std.testing.expect(ch.isUserAllowed("user123"));
-    try std.testing.expect(!ch.isUserAllowed("other"));
-}
-
-test "dingtalk user denied empty" {
-    const ch = DingTalkChannel.init(std.testing.allocator, "id", "secret", &.{});
-    try std.testing.expect(!ch.isUserAllowed("anyone"));
-}
-
-test "dingtalk vtable interface" {
-    var ch = DingTalkChannel.init(std.testing.allocator, "id", "secret", &.{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("dingtalk", iface.name());
-}

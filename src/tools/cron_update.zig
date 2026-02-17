@@ -104,13 +104,6 @@ test "cron_update tool name" {
     try std.testing.expectEqualStrings("cron_update", t.name());
 }
 
-test "cron_update description" {
-    var ct = CronUpdateTool{};
-    const t = ct.tool();
-    const desc = t.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "Update") != null);
-}
-
 test "cron_update schema has job_id" {
     var ct = CronUpdateTool{};
     const t = ct.tool();

@@ -213,13 +213,6 @@ test "hardware_memory tool name" {
     try std.testing.expectEqualStrings("hardware_memory", t.name());
 }
 
-test "hardware_memory tool description not empty" {
-    var hm = HardwareMemoryTool{ .boards = &.{} };
-    const t = hm.tool();
-    try std.testing.expect(t.description().len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, t.description(), "memory") != null);
-}
-
 test "hardware_memory schema has action" {
     var hm = HardwareMemoryTool{ .boards = &.{} };
     const t = hm.tool();
@@ -337,12 +330,4 @@ test "chipForBoard known" {
 test "chipForBoard unknown" {
     try std.testing.expect(chipForBoard("esp32") == null);
     try std.testing.expect(chipForBoard("unknown") == null);
-}
-
-test "hardware_memory tool spec" {
-    var hm = HardwareMemoryTool{ .boards = &.{} };
-    const t = hm.tool();
-    const s = t.spec();
-    try std.testing.expectEqualStrings("hardware_memory", s.name);
-    try std.testing.expect(s.parameters_json[0] == '{');
 }

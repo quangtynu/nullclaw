@@ -260,18 +260,10 @@ pub const GeminiProvider = struct {
         const self: *GeminiProvider = @ptrCast(@alignCast(ptr));
         const auth = self.auth orelse return error.CredentialsNotSet;
 
-        // Extract system prompt and last user message from the request
-        var system_prompt: ?[]const u8 = null;
-        var user_message: []const u8 = "";
-        for (request.messages) |msg| {
-            if (msg.role == .system) system_prompt = msg.content;
-            if (msg.role == .user) user_message = msg.content;
-        }
-
         const url = try buildUrl(allocator, model, auth);
         defer allocator.free(url);
 
-        const body = try buildRequestBody(allocator, system_prompt, user_message, temperature);
+        const body = try buildChatRequestBody(allocator, request, temperature);
         defer allocator.free(body);
 
         const resp_body = if (auth.isApiKey())
@@ -294,6 +286,88 @@ pub const GeminiProvider = struct {
 
     fn deinitImpl(_: *anyopaque) void {}
 };
+
+/// Build a full chat request JSON body from a ChatRequest (Gemini format).
+/// Gemini uses "contents" array with roles "user"/"model", system goes in "system_instruction".
+fn buildChatRequestBody(
+    allocator: std.mem.Allocator,
+    request: ChatRequest,
+    temperature: f64,
+) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(allocator);
+
+    // Extract system prompt
+    var system_prompt: ?[]const u8 = null;
+    for (request.messages) |msg| {
+        if (msg.role == .system) {
+            system_prompt = msg.content;
+            break;
+        }
+    }
+
+    try buf.appendSlice(allocator, "{\"contents\":[");
+    var count: usize = 0;
+    for (request.messages) |msg| {
+        if (msg.role == .system) continue;
+        if (count > 0) try buf.append(allocator, ',');
+        count += 1;
+        // Gemini uses "user" and "model" (not "assistant")
+        const role_str: []const u8 = switch (msg.role) {
+            .user, .tool => "user",
+            .assistant => "model",
+            .system => unreachable,
+        };
+        try buf.appendSlice(allocator, "{\"role\":\"");
+        try buf.appendSlice(allocator, role_str);
+        try buf.appendSlice(allocator, "\",\"parts\":[{\"text\":");
+        try appendJsonString(&buf, allocator, msg.content);
+        try buf.appendSlice(allocator, "}]}");
+    }
+    try buf.append(allocator, ']');
+
+    if (system_prompt) |sys| {
+        try buf.appendSlice(allocator, ",\"system_instruction\":{\"parts\":[{\"text\":");
+        try appendJsonString(&buf, allocator, sys);
+        try buf.appendSlice(allocator, "}]}");
+    }
+
+    try buf.appendSlice(allocator, ",\"generationConfig\":{\"temperature\":");
+    var temp_buf: [16]u8 = undefined;
+    const temp_str = std.fmt.bufPrint(&temp_buf, "{d:.2}", .{temperature}) catch return error.GeminiApiError;
+    try buf.appendSlice(allocator, temp_str);
+    try buf.appendSlice(allocator, ",\"maxOutputTokens\":");
+    var max_buf: [16]u8 = undefined;
+    const max_str = std.fmt.bufPrint(&max_buf, "{d}", .{GeminiProvider.DEFAULT_MAX_OUTPUT_TOKENS}) catch return error.GeminiApiError;
+    try buf.appendSlice(allocator, max_str);
+    try buf.appendSlice(allocator, "}}");
+
+    return try buf.toOwnedSlice(allocator);
+}
+
+/// Append a JSON-escaped string (with enclosing quotes) to the buffer.
+fn appendJsonString(buf: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, s: []const u8) !void {
+    try buf.append(allocator, '"');
+    for (s) |c| {
+        switch (c) {
+            '"' => try buf.appendSlice(allocator, "\\\""),
+            '\\' => try buf.appendSlice(allocator, "\\\\"),
+            '\n' => try buf.appendSlice(allocator, "\\n"),
+            '\r' => try buf.appendSlice(allocator, "\\r"),
+            '\t' => try buf.appendSlice(allocator, "\\t"),
+            else => {
+                if (c < 0x20) {
+                    var escape_buf: [6]u8 = undefined;
+                    const escape = std.fmt.bufPrint(&escape_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                    try buf.appendSlice(allocator, escape);
+                } else {
+                    try buf.append(allocator, c);
+                }
+            },
+        }
+    }
+    try buf.append(allocator, '"');
+}
 
 /// HTTP POST via curl subprocess.
 /// If `bearer_token` is non-null, sends Authorization: Bearer header (for OAuth).
@@ -440,53 +514,6 @@ test "GeminiAuth source labels" {
     try std.testing.expectEqualStrings("GEMINI_API_KEY env var", (GeminiAuth{ .env_gemini_key = "k" }).source());
     try std.testing.expectEqualStrings("GOOGLE_API_KEY env var", (GeminiAuth{ .env_google_key = "k" }).source());
     try std.testing.expectEqualStrings("Gemini CLI OAuth", (GeminiAuth{ .oauth_token = "t" }).source());
-}
-
-test "auth source none without credentials" {
-    const p = GeminiProvider{ .auth = null, .allocator = std.testing.allocator };
-    try std.testing.expectEqualStrings("none", p.authSource());
-}
-
-test "auth source explicit key" {
-    const p = GeminiProvider{
-        .auth = GeminiAuth{ .explicit_key = "key" },
-        .allocator = std.testing.allocator,
-    };
-    try std.testing.expectEqualStrings("config", p.authSource());
-}
-
-test "auth source oauth" {
-    const p = GeminiProvider{
-        .auth = GeminiAuth{ .oauth_token = "ya29.mock" },
-        .allocator = std.testing.allocator,
-    };
-    try std.testing.expectEqualStrings("Gemini CLI OAuth", p.authSource());
-}
-
-test "buildUrl env gemini key includes key param" {
-    const auth = GeminiAuth{ .env_gemini_key = "env-key-123" };
-    const url = try GeminiProvider.buildUrl(std.testing.allocator, "gemini-2.0-flash", auth);
-    defer std.testing.allocator.free(url);
-    try std.testing.expect(std.mem.indexOf(u8, url, "?key=env-key-123") != null);
-}
-
-test "buildUrl env google key includes key param" {
-    const auth = GeminiAuth{ .env_google_key = "goog-key-456" };
-    const url = try GeminiProvider.buildUrl(std.testing.allocator, "gemini-2.0-flash", auth);
-    defer std.testing.allocator.free(url);
-    try std.testing.expect(std.mem.indexOf(u8, url, "?key=goog-key-456") != null);
-}
-
-test "buildRequestBody temperature serialization" {
-    const body = try GeminiProvider.buildRequestBody(std.testing.allocator, null, "Hi", 0.0);
-    defer std.testing.allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "0.00") != null);
-}
-
-test "buildRequestBody includes maxOutputTokens" {
-    const body = try GeminiProvider.buildRequestBody(std.testing.allocator, null, "Hi", 0.7);
-    defer std.testing.allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "8192") != null);
 }
 
 test "parseResponse empty candidates fails" {

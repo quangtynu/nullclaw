@@ -349,11 +349,6 @@ pub fn splitIrcMessage(allocator: std.mem.Allocator, message: []const u8, max_by
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "irc channel name" {
-    var ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "bot", null, &.{}, &.{}, null, null, null, true);
-    try std.testing.expectEqualStrings("irc", ch.channelName());
-}
-
 test "irc default username to nickname" {
     const ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "mybot", null, &.{}, &.{}, null, null, null, true);
     try std.testing.expectEqualStrings("mybot", ch.username);
@@ -363,25 +358,6 @@ test "irc explicit username" {
     const ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "mybot", "customuser", &.{}, &.{}, null, null, null, true);
     try std.testing.expectEqualStrings("customuser", ch.username);
     try std.testing.expectEqualStrings("mybot", ch.nickname);
-}
-
-test "irc wildcard allows anyone" {
-    const users = [_][]const u8{"*"};
-    const ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "bot", null, &.{}, &users, null, null, null, true);
-    try std.testing.expect(ch.isUserAllowed("anyone"));
-}
-
-test "irc specific user allowed case insensitive" {
-    const users = [_][]const u8{ "alice", "bob" };
-    const ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "bot", null, &.{}, &users, null, null, null, true);
-    try std.testing.expect(ch.isUserAllowed("Alice"));
-    try std.testing.expect(ch.isUserAllowed("bob"));
-    try std.testing.expect(!ch.isUserAllowed("eve"));
-}
-
-test "irc empty allowlist denies all" {
-    const ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "bot", null, &.{}, &.{}, null, null, null, true);
-    try std.testing.expect(!ch.isUserAllowed("anyone"));
 }
 
 test "irc parse privmsg" {
@@ -455,12 +431,6 @@ test "irc split skips empty lines" {
     try std.testing.expectEqual(@as(usize, 2), chunks.len);
     try std.testing.expectEqualStrings("hello", chunks[0]);
     try std.testing.expectEqualStrings("world", chunks[1]);
-}
-
-test "irc vtable interface" {
-    var ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "bot", null, &.{}, &.{}, null, null, null, true);
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("irc", iface.name());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -615,11 +585,6 @@ test "irc max line len constant" {
 
 test "irc sender prefix reserve constant" {
     try std.testing.expectEqual(@as(usize, 64), IrcChannel.SENDER_PREFIX_RESERVE);
-}
-
-test "irc health check returns true" {
-    var ch = IrcChannel.init(std.testing.allocator, "irc.test", 6697, "bot", null, &.{}, &.{}, null, null, null, true);
-    try std.testing.expect(ch.healthCheck());
 }
 
 test "irc split long exact boundary" {

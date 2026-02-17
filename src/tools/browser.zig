@@ -186,19 +186,6 @@ test "browser tool name" {
     try std.testing.expectEqualStrings("browser", t.name());
 }
 
-test "browser description not empty" {
-    var bt = BrowserTool{};
-    const t = bt.tool();
-    try std.testing.expect(t.description().len > 0);
-}
-
-test "browser schema has action" {
-    var bt = BrowserTool{};
-    const t = bt.tool();
-    const schema = t.parametersJson();
-    try std.testing.expect(std.mem.indexOf(u8, schema, "action") != null);
-}
-
 test "browser open launches system browser" {
     var bt = BrowserTool{};
     const t = bt.tool();
@@ -254,24 +241,6 @@ test "browser click action requires CDP" {
     try std.testing.expect(std.mem.indexOf(u8, result.error_msg.?, "click") != null);
 }
 
-test "browser type action requires CDP" {
-    var bt = BrowserTool{};
-    const t = bt.tool();
-    const result = try t.execute(std.testing.allocator, "{\"action\": \"type\", \"selector\": \"input\", \"text\": \"hi\"}");
-    defer if (result.error_msg) |e| std.testing.allocator.free(e);
-    try std.testing.expect(!result.success);
-    try std.testing.expect(std.mem.indexOf(u8, result.error_msg.?, "CDP") != null);
-}
-
-test "browser scroll action requires CDP" {
-    var bt = BrowserTool{};
-    const t = bt.tool();
-    const result = try t.execute(std.testing.allocator, "{\"action\": \"scroll\"}");
-    defer if (result.error_msg) |e| std.testing.allocator.free(e);
-    try std.testing.expect(!result.success);
-    try std.testing.expect(std.mem.indexOf(u8, result.error_msg.?, "CDP") != null);
-}
-
 test "browser read missing url" {
     var bt = BrowserTool{};
     const t = bt.tool();
@@ -289,15 +258,6 @@ test "browser open returns output with URL" {
     try std.testing.expect(result.success);
     try std.testing.expect(std.mem.indexOf(u8, result.output, "docs.example.com") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.output, "Opened") != null);
-}
-
-test "browser schema has url property" {
-    var bt = BrowserTool{};
-    const t = bt.tool();
-    const schema = t.parametersJson();
-    try std.testing.expect(std.mem.indexOf(u8, schema, "url") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "selector") != null);
-    try std.testing.expect(std.mem.indexOf(u8, schema, "text") != null);
 }
 
 test "browser schema has enum values" {

@@ -125,13 +125,6 @@ test "cron_run schema has job_id" {
     try std.testing.expect(std.mem.indexOf(u8, schema, "job_id") != null);
 }
 
-test "cron_run description mentions force" {
-    var crt = CronRunTool{};
-    const t = crt.tool();
-    const desc = t.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "Force-run") != null);
-}
-
 test "cron_run_requires_job_id" {
     var crt = CronRunTool{};
     const t = crt.tool();

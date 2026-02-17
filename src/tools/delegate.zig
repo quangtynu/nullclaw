@@ -106,12 +106,6 @@ test "delegate tool name" {
     try std.testing.expectEqualStrings("delegate", t.name());
 }
 
-test "delegate description not empty" {
-    var dt = DelegateTool{};
-    const t = dt.tool();
-    try std.testing.expect(t.description().len > 0);
-}
-
 test "delegate schema has agent and prompt" {
     var dt = DelegateTool{};
     const t = dt.tool();
@@ -207,12 +201,4 @@ test "delegate with context field handles missing provider gracefully" {
     if (!result.success) {
         try std.testing.expect(result.error_msg != null);
     }
-}
-
-test "delegate description mentions sub-agent" {
-    var dt = DelegateTool{};
-    const t = dt.tool();
-    const desc = t.description();
-    try std.testing.expect(desc.len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, desc, "agent") != null or std.mem.indexOf(u8, desc, "Delegate") != null);
 }

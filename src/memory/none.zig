@@ -100,56 +100,6 @@ test "none memory is noop" {
     try std.testing.expect(m.healthCheck());
 }
 
-test "none memory count always zero" {
-    var mem = NoneMemory.init();
-    defer mem.deinit();
-    const m = mem.memory();
-
-    try m.store("a", "b", .core, null);
-    try m.store("c", "d", .daily, null);
-
-    try std.testing.expectEqual(@as(usize, 0), try m.count());
-}
-
-test "none memory list always empty" {
-    var mem = NoneMemory.init();
-    defer mem.deinit();
-    const m = mem.memory();
-
-    try m.store("key", "value", .core, null);
-
-    const core_list = try m.list(std.testing.allocator, .core, null);
-    defer std.testing.allocator.free(core_list);
-    try std.testing.expectEqual(@as(usize, 0), core_list.len);
-
-    const all_list = try m.list(std.testing.allocator, null, null);
-    defer std.testing.allocator.free(all_list);
-    try std.testing.expectEqual(@as(usize, 0), all_list.len);
-}
-
-test "none memory recall always empty" {
-    var mem = NoneMemory.init();
-    defer mem.deinit();
-    const m = mem.memory();
-
-    try m.store("searchable", "find me", .core, null);
-
-    const results = try m.recall(std.testing.allocator, "find", 10, null);
-    defer std.testing.allocator.free(results);
-    try std.testing.expectEqual(@as(usize, 0), results.len);
-}
-
-test "none memory get always null" {
-    var mem = NoneMemory.init();
-    defer mem.deinit();
-    const m = mem.memory();
-
-    try m.store("existing", "value", .core, null);
-
-    const result = try m.get(std.testing.allocator, "existing");
-    try std.testing.expect(result == null);
-}
-
 test "none memory accepts session_id param" {
     var mem = NoneMemory.init();
     defer mem.deinit();

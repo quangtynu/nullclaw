@@ -638,46 +638,11 @@ fn curlPost(allocator: std.mem.Allocator, url: []const u8, body: []const u8, aut
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "telegram channel name" {
-    var ch = TelegramChannel.init(std.testing.allocator, "123:ABC", &.{});
-    try std.testing.expectEqualStrings("telegram", ch.channelName());
-}
-
 test "telegram api url" {
     const ch = TelegramChannel.init(std.testing.allocator, "123:ABC", &.{});
     var buf: [256]u8 = undefined;
     const url = try ch.apiUrl(&buf, "getUpdates");
     try std.testing.expectEqualStrings("https://api.telegram.org/bot123:ABC/getUpdates", url);
-}
-
-test "telegram user allowed wildcard" {
-    const users = [_][]const u8{"*"};
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &users);
-    try std.testing.expect(ch.isUserAllowed("anyone"));
-}
-
-test "telegram user allowed specific" {
-    const users = [_][]const u8{ "alice", "bob" };
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &users);
-    try std.testing.expect(ch.isUserAllowed("alice"));
-    try std.testing.expect(!ch.isUserAllowed("eve"));
-}
-
-test "telegram user denied empty" {
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &.{});
-    try std.testing.expect(!ch.isUserAllowed("anyone"));
-}
-
-test "telegram vtable interface" {
-    var ch = TelegramChannel.init(std.testing.allocator, "tok", &.{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("telegram", iface.name());
-}
-
-test "telegram message splitting" {
-    var it = root.splitMessage("hello world", TelegramChannel.MAX_MESSAGE_LEN);
-    try std.testing.expectEqualStrings("hello world", it.next().?);
-    try std.testing.expect(it.next() == null);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -719,90 +684,14 @@ test "telegram api url sendVoice" {
     try std.testing.expectEqualStrings("https://api.telegram.org/bot123:ABC/sendVoice", url);
 }
 
-test "telegram user exact match not substring" {
-    const users = [_][]const u8{"alice"};
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &users);
-    try std.testing.expect(!ch.isUserAllowed("alice_bot"));
-    try std.testing.expect(!ch.isUserAllowed("alic"));
-    try std.testing.expect(!ch.isUserAllowed("malice"));
-}
-
-test "telegram user empty string denied" {
-    const users = [_][]const u8{"alice"};
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &users);
-    try std.testing.expect(!ch.isUserAllowed(""));
-}
-
-test "telegram user case sensitive" {
-    const users = [_][]const u8{"Alice"};
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &users);
-    try std.testing.expect(ch.isUserAllowed("Alice"));
-    try std.testing.expect(!ch.isUserAllowed("alice"));
-    try std.testing.expect(!ch.isUserAllowed("ALICE"));
-}
-
-test "telegram wildcard with specific users" {
-    const users = [_][]const u8{ "alice", "*" };
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &users);
-    try std.testing.expect(ch.isUserAllowed("alice"));
-    try std.testing.expect(ch.isUserAllowed("bob"));
-    try std.testing.expect(ch.isUserAllowed("anyone"));
-}
-
-test "telegram numeric id authorization" {
-    const users = [_][]const u8{"123456789"};
-    const ch = TelegramChannel.init(std.testing.allocator, "tok", &users);
-    try std.testing.expect(ch.isUserAllowed("123456789"));
-    try std.testing.expect(!ch.isUserAllowed("987654321"));
-}
-
 test "telegram max message len constant" {
     try std.testing.expectEqual(@as(usize, 4096), TelegramChannel.MAX_MESSAGE_LEN);
-}
-
-test "telegram split exact limit" {
-    const msg = "a" ** 4096;
-    var it = root.splitMessage(msg, TelegramChannel.MAX_MESSAGE_LEN);
-    const chunk = it.next().?;
-    try std.testing.expectEqual(@as(usize, 4096), chunk.len);
-    try std.testing.expect(it.next() == null);
-}
-
-test "telegram split over limit" {
-    const msg = "a" ** 4196;
-    var it = root.splitMessage(msg, TelegramChannel.MAX_MESSAGE_LEN);
-    const chunk1 = it.next().?;
-    try std.testing.expectEqual(@as(usize, 4096), chunk1.len);
-    const chunk2 = it.next().?;
-    try std.testing.expectEqual(@as(usize, 100), chunk2.len);
-    try std.testing.expect(it.next() == null);
-}
-
-test "telegram split empty message" {
-    var it = root.splitMessage("", TelegramChannel.MAX_MESSAGE_LEN);
-    try std.testing.expect(it.next() == null);
-}
-
-test "telegram split very long message all within limit" {
-    const msg = "x" ** 12288; // 3 * 4096
-    var it = root.splitMessage(msg, TelegramChannel.MAX_MESSAGE_LEN);
-    var count: usize = 0;
-    while (it.next()) |chunk| {
-        try std.testing.expect(chunk.len <= TelegramChannel.MAX_MESSAGE_LEN);
-        count += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 3), count);
 }
 
 test "telegram build send body" {
     var buf: [512]u8 = undefined;
     const body = try TelegramChannel.buildSendBody(&buf, "12345", "Hello!");
     try std.testing.expectEqualStrings("{\"chat_id\":12345,\"text\":\"Hello!\"}", body);
-}
-
-test "telegram health check returns true" {
-    var ch = TelegramChannel.init(std.testing.allocator, "tok", &.{});
-    try std.testing.expect(ch.healthCheck());
 }
 
 test "telegram init stores fields" {

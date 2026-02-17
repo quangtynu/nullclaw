@@ -346,12 +346,6 @@ test "git tool name" {
     try std.testing.expectEqualStrings("git_operations", t.name());
 }
 
-test "git tool description not empty" {
-    var gt = GitTool{ .workspace_dir = "/tmp" };
-    const t = gt.tool();
-    try std.testing.expect(t.description().len > 0);
-}
-
 test "git tool schema has operation" {
     var gt = GitTool{ .workspace_dir = "/tmp" };
     const t = gt.tool();

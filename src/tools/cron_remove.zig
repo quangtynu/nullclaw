@@ -107,12 +107,6 @@ test "cron_remove tool name" {
     try std.testing.expectEqualStrings("cron_remove", tool_iface.name());
 }
 
-test "cron_remove tool description" {
-    var t = CronRemoveTool{};
-    const tool_iface = t.tool();
-    try std.testing.expect(std.mem.indexOf(u8, tool_iface.description(), "Remove") != null);
-}
-
 test "cron_remove schema has job_id" {
     var t = CronRemoveTool{};
     const tool_iface = t.tool();

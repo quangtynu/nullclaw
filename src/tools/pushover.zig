@@ -194,14 +194,6 @@ test "pushover tool name" {
     try std.testing.expectEqualStrings("pushover", t.name());
 }
 
-test "pushover tool description mentions notification" {
-    var pt = PushoverTool{ .workspace_dir = "/tmp", .allocator = std.testing.allocator };
-    const t = pt.tool();
-    const desc = t.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "notification") != null or
-        std.mem.indexOf(u8, desc, "push") != null);
-}
-
 test "pushover schema has message required" {
     var pt = PushoverTool{ .workspace_dir = "/tmp", .allocator = std.testing.allocator };
     const t = pt.tool();

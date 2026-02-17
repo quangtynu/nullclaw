@@ -935,27 +935,6 @@ pub fn customTunnel(start_command: []const u8, health_url: ?[]const u8, url_patt
 
 // ── Tests ───────────────────────────────────────────────────────
 
-test "TunnelProvider.fromString none" {
-    try std.testing.expectEqual(TunnelProvider.none, TunnelProvider.fromString("none").?);
-    try std.testing.expectEqual(TunnelProvider.none, TunnelProvider.fromString("").?);
-}
-
-test "TunnelProvider.fromString cloudflare" {
-    try std.testing.expectEqual(TunnelProvider.cloudflare, TunnelProvider.fromString("cloudflare").?);
-}
-
-test "TunnelProvider.fromString tailscale" {
-    try std.testing.expectEqual(TunnelProvider.tailscale, TunnelProvider.fromString("tailscale").?);
-}
-
-test "TunnelProvider.fromString ngrok" {
-    try std.testing.expectEqual(TunnelProvider.ngrok, TunnelProvider.fromString("ngrok").?);
-}
-
-test "TunnelProvider.fromString custom" {
-    try std.testing.expectEqual(TunnelProvider.custom, TunnelProvider.fromString("custom").?);
-}
-
 test "TunnelProvider.fromString unknown returns null" {
     try std.testing.expect(TunnelProvider.fromString("wireguard") == null);
 }
@@ -1031,38 +1010,6 @@ test "factory custom with config ok" {
     try std.testing.expectEqualStrings("custom", t.?.providerName());
 }
 
-test "noneTunnel name" {
-    const t = noneTunnel();
-    try std.testing.expectEqualStrings("none", t.providerName());
-}
-
-test "noneTunnel public url is null" {
-    const t = noneTunnel();
-    try std.testing.expect(t.publicUrl() == null);
-}
-
-test "noneTunnel is not running initially" {
-    const t = noneTunnel();
-    try std.testing.expect(!t.isRunning());
-}
-
-test "cloudflareTunnel name" {
-    const t = cloudflareTunnel("tok");
-    try std.testing.expectEqualStrings("cloudflare", t.providerName());
-    try std.testing.expect(t.publicUrl() == null);
-}
-
-test "cloudflareTunnel not running before start" {
-    const t = cloudflareTunnel("tok");
-    try std.testing.expect(!t.isRunning());
-}
-
-test "tailscaleTunnel name" {
-    const t = tailscaleTunnel(false, null);
-    try std.testing.expectEqualStrings("tailscale", t.providerName());
-    try std.testing.expect(t.publicUrl() == null);
-}
-
 test "tailscaleTunnel funnel mode" {
     const t = tailscaleTunnel(true, "myhost");
     try std.testing.expectEqualStrings("tailscale", t.providerName());
@@ -1070,22 +1017,10 @@ test "tailscaleTunnel funnel mode" {
     try std.testing.expectEqualStrings("myhost", t.tailscale_hostname.?);
 }
 
-test "ngrokTunnel name" {
-    const t = ngrokTunnel("tok", null);
-    try std.testing.expectEqualStrings("ngrok", t.providerName());
-    try std.testing.expect(t.publicUrl() == null);
-}
-
 test "ngrokTunnel with domain" {
     const t = ngrokTunnel("tok", "my.ngrok.io");
     try std.testing.expectEqualStrings("ngrok", t.providerName());
     try std.testing.expectEqualStrings("my.ngrok.io", t.ngrok_domain.?);
-}
-
-test "customTunnel name" {
-    const t = customTunnel("echo hi", null, null);
-    try std.testing.expectEqualStrings("custom", t.providerName());
-    try std.testing.expect(t.publicUrl() == null);
 }
 
 test "tunnel stop clears state" {

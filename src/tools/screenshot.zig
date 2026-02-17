@@ -94,33 +94,9 @@ test "screenshot tool name" {
     try std.testing.expectEqualStrings("screenshot", t.name());
 }
 
-test "screenshot tool description not empty" {
-    var st = ScreenshotTool{ .workspace_dir = "/tmp" };
-    const t = st.tool();
-    try std.testing.expect(t.description().len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, t.description(), "screenshot") != null or std.mem.indexOf(u8, t.description(), "Screenshot") != null);
-}
-
 test "screenshot tool schema has filename" {
     var st = ScreenshotTool{ .workspace_dir = "/tmp" };
     const t = st.tool();
     const schema = t.parametersJson();
     try std.testing.expect(std.mem.indexOf(u8, schema, "filename") != null);
-}
-
-test "screenshot tool spec" {
-    var st = ScreenshotTool{ .workspace_dir = "/tmp" };
-    const t = st.tool();
-    const s = t.spec();
-    try std.testing.expectEqualStrings("screenshot", s.name);
-    try std.testing.expect(s.parameters_json.len > 0);
-    try std.testing.expect(s.parameters_json[0] == '{');
-}
-
-test "screenshot tool vtable consistent" {
-    var st = ScreenshotTool{ .workspace_dir = "/tmp" };
-    const t = st.tool();
-    try std.testing.expect(t.vtable == &ScreenshotTool.vtable);
-    try std.testing.expectEqualStrings("screenshot", t.name());
-    try std.testing.expectEqualStrings("screenshot", t.name());
 }

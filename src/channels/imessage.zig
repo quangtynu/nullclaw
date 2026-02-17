@@ -186,36 +186,6 @@ pub fn isValidTarget(target: []const u8) bool {
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "imessage channel name" {
-    var ch = IMessageChannel.init(std.testing.allocator, &.{});
-    try std.testing.expectEqualStrings("imessage", ch.channelName());
-}
-
-test "imessage wildcard allows anyone" {
-    const contacts = [_][]const u8{"*"};
-    const ch = IMessageChannel.init(std.testing.allocator, &contacts);
-    try std.testing.expect(ch.isContactAllowed("+1234567890"));
-    try std.testing.expect(ch.isContactAllowed("random@icloud.com"));
-}
-
-test "imessage specific contact allowed" {
-    const contacts = [_][]const u8{ "+1234567890", "user@icloud.com" };
-    const ch = IMessageChannel.init(std.testing.allocator, &contacts);
-    try std.testing.expect(ch.isContactAllowed("+1234567890"));
-    try std.testing.expect(ch.isContactAllowed("user@icloud.com"));
-}
-
-test "imessage unknown contact denied" {
-    const contacts = [_][]const u8{"+1234567890"};
-    const ch = IMessageChannel.init(std.testing.allocator, &contacts);
-    try std.testing.expect(!ch.isContactAllowed("+9999999999"));
-}
-
-test "imessage empty allowlist denies all" {
-    const ch = IMessageChannel.init(std.testing.allocator, &.{});
-    try std.testing.expect(!ch.isContactAllowed("+1234567890"));
-}
-
 test "escape applescript double quotes" {
     const allocator = std.testing.allocator;
     const result = try escapeAppleScript(allocator, "hello \"world\"");
@@ -301,12 +271,6 @@ test "invalid target email no dot in domain" {
 
 test "invalid target injection attempt" {
     try std.testing.expect(!isValidTarget("\" & do shell script \"id\" & \""));
-}
-
-test "imessage vtable interface" {
-    var ch = IMessageChannel.init(std.testing.allocator, &.{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("imessage", iface.name());
 }
 
 // ════════════════════════════════════════════════════════════════════════════

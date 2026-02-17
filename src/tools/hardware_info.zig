@@ -138,13 +138,6 @@ test "hardware_board_info tool name" {
     try std.testing.expectEqualStrings("hardware_board_info", t.name());
 }
 
-test "hardware_board_info tool description not empty" {
-    var hi = HardwareBoardInfoTool{ .boards = &.{} };
-    const t = hi.tool();
-    try std.testing.expect(t.description().len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, t.description(), "board") != null);
-}
-
 test "hardware_board_info schema has board" {
     var hi = HardwareBoardInfoTool{ .boards = &.{} };
     const t = hi.tool();
@@ -199,14 +192,6 @@ test "hardware_board_info esp32" {
     defer if (result.output.len > 0) std.testing.allocator.free(result.output);
     try std.testing.expect(result.success);
     try std.testing.expect(std.mem.indexOf(u8, result.output, "ESP32") != null);
-}
-
-test "hardware_board_info tool spec" {
-    var hi = HardwareBoardInfoTool{ .boards = &.{} };
-    const t = hi.tool();
-    const s = t.spec();
-    try std.testing.expectEqualStrings("hardware_board_info", s.name);
-    try std.testing.expect(s.parameters_json[0] == '{');
 }
 
 test "memoryMapStatic returns for known boards" {

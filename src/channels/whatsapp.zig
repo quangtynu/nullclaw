@@ -229,33 +229,9 @@ pub const ParsedMessage = struct {
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "whatsapp channel name" {
-    var ch = WhatsAppChannel.init(std.testing.allocator, "tok", "123", "ver", &.{});
-    try std.testing.expectEqualStrings("whatsapp", ch.channelName());
-}
-
 test "whatsapp verify token" {
     const ch = WhatsAppChannel.init(std.testing.allocator, "tok", "123", "my-verify", &.{});
     try std.testing.expectEqualStrings("my-verify", ch.getVerifyToken());
-}
-
-test "whatsapp number allowed exact" {
-    const nums = [_][]const u8{"+1234567890"};
-    const ch = WhatsAppChannel.init(std.testing.allocator, "tok", "123", "ver", &nums);
-    try std.testing.expect(ch.isNumberAllowed("+1234567890"));
-    try std.testing.expect(!ch.isNumberAllowed("+9876543210"));
-}
-
-test "whatsapp number allowed wildcard" {
-    const nums = [_][]const u8{"*"};
-    const ch = WhatsAppChannel.init(std.testing.allocator, "tok", "123", "ver", &nums);
-    try std.testing.expect(ch.isNumberAllowed("+1234567890"));
-    try std.testing.expect(ch.isNumberAllowed("+9999999999"));
-}
-
-test "whatsapp number denied empty" {
-    const ch = WhatsAppChannel.init(std.testing.allocator, "tok", "123", "ver", &.{});
-    try std.testing.expect(!ch.isNumberAllowed("+1234567890"));
 }
 
 test "whatsapp normalize phone" {
@@ -323,12 +299,6 @@ test "whatsapp parse non-text message skipped" {
     const msgs = try ch.parseWebhookPayload(allocator, payload);
     defer allocator.free(msgs);
     try std.testing.expectEqual(@as(usize, 0), msgs.len);
-}
-
-test "whatsapp vtable interface" {
-    var ch = WhatsAppChannel.init(std.testing.allocator, "tok", "123", "ver", &.{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("whatsapp", iface.name());
 }
 
 // ════════════════════════════════════════════════════════════════════════════

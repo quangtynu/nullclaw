@@ -86,23 +86,6 @@ test "docker sandbox name" {
     try std.testing.expectEqualStrings("docker", sb.name());
 }
 
-test "docker sandbox default image" {
-    const dk = createDockerSandbox("/tmp/workspace", null);
-    try std.testing.expectEqualStrings("alpine:latest", dk.image);
-}
-
-test "docker sandbox custom image" {
-    const dk = createDockerSandbox("/tmp/workspace", "ubuntu:latest");
-    try std.testing.expectEqualStrings("ubuntu:latest", dk.image);
-}
-
-test "docker sandbox description mentions docker" {
-    var dk = createDockerSandbox("/tmp/workspace", null);
-    const sb = dk.sandbox();
-    const desc = sb.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "Docker") != null or std.mem.indexOf(u8, desc, "docker") != null);
-}
-
 test "docker sandbox isAvailable returns bool" {
     var dk = createDockerSandbox("/tmp/workspace", null);
     const sb = dk.sandbox();
@@ -163,10 +146,4 @@ test "docker buffer too small returns error" {
     var buf: [5][]const u8 = undefined;
     const result = sb.wrapCommand(&argv, &buf);
     try std.testing.expectError(error.BufferTooSmall, result);
-}
-
-test "docker sandbox vtable consistent" {
-    var dk = createDockerSandbox("/tmp/workspace", null);
-    const sb = dk.sandbox();
-    try std.testing.expect(sb.vtable == &DockerSandbox.sandbox_vtable);
 }

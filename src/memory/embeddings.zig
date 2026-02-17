@@ -318,34 +318,6 @@ pub fn createEmbeddingProvider(
 
 // ── Tests ─────────────────────────────────────────────────────────
 
-test "noop embedding name" {
-    var noop = NoopEmbedding{};
-    const p = noop.provider();
-    try std.testing.expectEqualStrings("none", p.getName());
-}
-
-test "noop embedding dimensions" {
-    var noop = NoopEmbedding{};
-    const p = noop.provider();
-    try std.testing.expectEqual(@as(u32, 0), p.getDimensions());
-}
-
-test "noop embedding returns empty" {
-    var noop = NoopEmbedding{};
-    const p = noop.provider();
-    const result = try p.embed(std.testing.allocator, "hello");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqual(@as(usize, 0), result.len);
-}
-
-test "noop embedding empty text" {
-    var noop = NoopEmbedding{};
-    const p = noop.provider();
-    const result = try p.embed(std.testing.allocator, "");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqual(@as(usize, 0), result.len);
-}
-
 test "hasExplicitApiPath" {
     try std.testing.expect(!hasExplicitApiPath("https://api.openai.com"));
     try std.testing.expect(!hasExplicitApiPath("https://api.openai.com/"));

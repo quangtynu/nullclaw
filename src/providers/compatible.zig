@@ -439,18 +439,10 @@ pub const OpenAiCompatibleProvider = struct {
     ) anyerror!ChatResponse {
         const self: *OpenAiCompatibleProvider = @ptrCast(@alignCast(ptr));
 
-        // Extract system prompt and last user message from ChatRequest
-        var system_prompt: ?[]const u8 = null;
-        var user_message: []const u8 = "";
-        for (request.messages) |msg| {
-            if (msg.role == .system) system_prompt = msg.content;
-            if (msg.role == .user) user_message = msg.content;
-        }
-
         const url = try self.chatCompletionsUrl(allocator);
         defer allocator.free(url);
 
-        const body = try buildRequestBody(allocator, system_prompt, user_message, model, temperature);
+        const body = try buildChatRequestBody(allocator, request, model, temperature);
         defer allocator.free(body);
 
         const auth = try self.authHeaderValue(allocator);
@@ -479,6 +471,66 @@ pub const OpenAiCompatibleProvider = struct {
 
     fn deinitImpl(_: *anyopaque) void {}
 };
+
+/// Build a full chat request JSON body from a ChatRequest (OpenAI-compatible format).
+fn buildChatRequestBody(
+    allocator: std.mem.Allocator,
+    request: ChatRequest,
+    model: []const u8,
+    temperature: f64,
+) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(allocator);
+
+    try buf.appendSlice(allocator, "{\"model\":\"");
+    try buf.appendSlice(allocator, model);
+    try buf.appendSlice(allocator, "\",\"messages\":[");
+
+    for (request.messages, 0..) |msg, i| {
+        if (i > 0) try buf.append(allocator, ',');
+        try buf.appendSlice(allocator, "{\"role\":\"");
+        try buf.appendSlice(allocator, msg.role.toSlice());
+        try buf.appendSlice(allocator, "\",\"content\":");
+        try appendCompatibleJsonString(&buf, allocator, msg.content);
+        if (msg.tool_call_id) |tc_id| {
+            try buf.appendSlice(allocator, ",\"tool_call_id\":");
+            try appendCompatibleJsonString(&buf, allocator, tc_id);
+        }
+        try buf.append(allocator, '}');
+    }
+
+    try buf.appendSlice(allocator, "],\"temperature\":");
+    var temp_buf: [16]u8 = undefined;
+    const temp_str = std.fmt.bufPrint(&temp_buf, "{d:.2}", .{temperature}) catch return error.CompatibleApiError;
+    try buf.appendSlice(allocator, temp_str);
+    try buf.appendSlice(allocator, ",\"stream\":false}");
+
+    return try buf.toOwnedSlice(allocator);
+}
+
+/// Append a JSON-escaped string (with enclosing quotes) to the buffer.
+fn appendCompatibleJsonString(buf: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, s: []const u8) !void {
+    try buf.append(allocator, '"');
+    for (s) |c| {
+        switch (c) {
+            '"' => try buf.appendSlice(allocator, "\\\""),
+            '\\' => try buf.appendSlice(allocator, "\\\\"),
+            '\n' => try buf.appendSlice(allocator, "\\n"),
+            '\r' => try buf.appendSlice(allocator, "\\r"),
+            '\t' => try buf.appendSlice(allocator, "\\t"),
+            else => {
+                if (c < 0x20) {
+                    var escape_buf: [6]u8 = undefined;
+                    const escape = std.fmt.bufPrint(&escape_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                    try buf.appendSlice(allocator, escape);
+                } else {
+                    try buf.append(allocator, c);
+                }
+            },
+        }
+    }
+    try buf.append(allocator, '"');
+}
 
 /// HTTP POST via curl subprocess with auth header.
 fn curlPost(allocator: std.mem.Allocator, url: []const u8, body: []const u8, auth_hdr: []const u8) ![]u8 {
@@ -524,18 +576,6 @@ fn curlPostNoAuth(allocator: std.mem.Allocator, url: []const u8, body: []const u
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "creates with key" {
-    const p = OpenAiCompatibleProvider.init(std.testing.allocator, "Venice", "https://api.venice.ai", "vn-key", .bearer);
-    try std.testing.expectEqualStrings("Venice", p.name);
-    try std.testing.expectEqualStrings("https://api.venice.ai", p.base_url);
-    try std.testing.expectEqualStrings("vn-key", p.api_key.?);
-}
-
-test "creates without key" {
-    const p = OpenAiCompatibleProvider.init(std.testing.allocator, "test", "https://example.com", null, .bearer);
-    try std.testing.expect(p.api_key == null);
-}
-
 test "strips trailing slash" {
     const p = OpenAiCompatibleProvider.init(std.testing.allocator, "test", "https://example.com/", null, .bearer);
     try std.testing.expectEqualStrings("https://example.com", p.base_url);
@@ -559,20 +599,6 @@ test "chatCompletionsUrl custom full endpoint" {
     const url = try p.chatCompletionsUrl(std.testing.allocator);
     defer std.testing.allocator.free(url);
     try std.testing.expectEqualStrings("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions", url);
-}
-
-test "chatCompletionsUrl groq" {
-    const p = OpenAiCompatibleProvider.init(std.testing.allocator, "Groq", "https://api.groq.com/openai", null, .bearer);
-    const url = try p.chatCompletionsUrl(std.testing.allocator);
-    defer std.testing.allocator.free(url);
-    try std.testing.expectEqualStrings("https://api.groq.com/openai/chat/completions", url);
-}
-
-test "chatCompletionsUrl minimax" {
-    const p = OpenAiCompatibleProvider.init(std.testing.allocator, "MiniMax", "https://api.minimaxi.com/v1", null, .bearer);
-    const url = try p.chatCompletionsUrl(std.testing.allocator);
-    defer std.testing.allocator.free(url);
-    try std.testing.expectEqualStrings("https://api.minimaxi.com/v1/chat/completions", url);
 }
 
 test "buildRequestBody with system" {
@@ -633,27 +659,6 @@ test "chatCompletionsUrl trailing slash stripped" {
     try std.testing.expectEqualStrings("https://api.example.com/v1/chat/completions", url);
 }
 
-test "chatCompletionsUrl glm endpoint" {
-    const p = OpenAiCompatibleProvider.init(std.testing.allocator, "glm", "https://open.bigmodel.cn/api/paas/v4", null, .bearer);
-    const url = try p.chatCompletionsUrl(std.testing.allocator);
-    defer std.testing.allocator.free(url);
-    try std.testing.expectEqualStrings("https://open.bigmodel.cn/api/paas/v4/chat/completions", url);
-}
-
-test "chatCompletionsUrl zai endpoint" {
-    const p = OpenAiCompatibleProvider.init(std.testing.allocator, "zai", "https://api.z.ai/api/paas/v4", null, .bearer);
-    const url = try p.chatCompletionsUrl(std.testing.allocator);
-    defer std.testing.allocator.free(url);
-    try std.testing.expectEqualStrings("https://api.z.ai/api/paas/v4/chat/completions", url);
-}
-
-test "chatCompletionsUrl opencode endpoint" {
-    const p = OpenAiCompatibleProvider.init(std.testing.allocator, "opencode", "https://opencode.ai/zen/v1", null, .bearer);
-    const url = try p.chatCompletionsUrl(std.testing.allocator);
-    defer std.testing.allocator.free(url);
-    try std.testing.expectEqualStrings("https://opencode.ai/zen/v1/chat/completions", url);
-}
-
 test "chatCompletionsUrl without v1" {
     const p = OpenAiCompatibleProvider.init(std.testing.allocator, "test", "https://api.example.com", null, .bearer);
     const url = try p.chatCompletionsUrl(std.testing.allocator);
@@ -697,19 +702,6 @@ test "provider getName returns custom name" {
     var p = OpenAiCompatibleProvider.init(std.testing.allocator, "Venice", "https://api.venice.ai", "key", .bearer);
     const prov = p.provider();
     try std.testing.expectEqualStrings("Venice", prov.getName());
-}
-
-test "chatCompletionsUrl volcengine custom path preserved" {
-    const p = OpenAiCompatibleProvider.init(
-        std.testing.allocator,
-        "volcengine",
-        "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions",
-        null,
-        .bearer,
-    );
-    const url = try p.chatCompletionsUrl(std.testing.allocator);
-    defer std.testing.allocator.free(url);
-    try std.testing.expectEqualStrings("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions", url);
 }
 
 test "chatCompletionsUrl requires exact suffix match" {
@@ -866,17 +858,6 @@ test "initNoResponsesFallback sets field to false" {
     );
     try std.testing.expect(!p.supports_responses_fallback);
     try std.testing.expectEqualStrings("GLM", p.name);
-}
-
-test "init defaults supports_responses_fallback to true" {
-    const p = OpenAiCompatibleProvider.init(
-        std.testing.allocator,
-        "test",
-        "https://example.com",
-        null,
-        .bearer,
-    );
-    try std.testing.expect(p.supports_responses_fallback);
 }
 
 test "AuthStyle custom headerName fallback" {

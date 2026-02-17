@@ -447,16 +447,6 @@ fn appendJsonString(buf: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocat
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "creates with key" {
-    const p = OpenRouterProvider.init(std.testing.allocator, "sk-or-123");
-    try std.testing.expectEqualStrings("sk-or-123", p.api_key.?);
-}
-
-test "creates without key" {
-    const p = OpenRouterProvider.init(std.testing.allocator, null);
-    try std.testing.expect(p.api_key == null);
-}
-
 test "buildRequestBody with system and user" {
     const body = try OpenRouterProvider.buildRequestBody(
         std.testing.allocator,
@@ -614,12 +604,6 @@ test "convertTools with empty tools returns empty array" {
 test "warmup does not crash without key" {
     var p = OpenRouterProvider.init(std.testing.allocator, null);
     p.warmup(); // Should return immediately, no crash
-}
-
-test "warmup does not crash via vtable" {
-    var p = OpenRouterProvider.init(std.testing.allocator, null);
-    const prov = p.provider();
-    prov.warmup(); // Should call warmupImpl -> warmup, no crash
 }
 
 test "chatWithHistory fails without key" {

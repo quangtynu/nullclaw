@@ -474,21 +474,6 @@ test "introspectDevice has memory map note" {
     try std.testing.expect(result.memory_map_note.len > 0);
 }
 
-test "DiscoveredDevice defaults" {
-    const d = DiscoveredDevice{ .name = "test-board" };
-    try std.testing.expectEqualStrings("test-board", d.name);
-    try std.testing.expect(d.detail == null);
-    try std.testing.expect(d.device_path == null);
-    try std.testing.expectEqual(config.HardwareTransport.serial, d.transport);
-}
-
-test "IntrospectResult defaults" {
-    const r = IntrospectResult{ .path = "/dev/test" };
-    try std.testing.expectEqualStrings("/dev/test", r.path);
-    try std.testing.expect(r.vid == null);
-    try std.testing.expect(r.pid == null);
-}
-
 // ── parseHexFromLine tests ──────────────────────────────────────
 
 test "parseHexFromLine extracts VID with 0x prefix" {

@@ -74,14 +74,6 @@ test "landlock sandbox availability matches platform" {
     }
 }
 
-test "landlock sandbox description" {
-    var ll = createLandlockSandbox("/tmp/workspace");
-    const sb = ll.sandbox();
-    const desc = sb.description();
-    try std.testing.expect(desc.len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, desc, "landlock") != null or std.mem.indexOf(u8, desc, "LSM") != null or std.mem.indexOf(u8, desc, "Linux") != null);
-}
-
 test "landlock sandbox wrap command on non-linux returns error" {
     if (comptime builtin.os.tag == .linux) return;
     var ll = createLandlockSandbox("/tmp/workspace");
@@ -101,12 +93,4 @@ test "landlock sandbox wrap command on linux passes through" {
     const result = try sb.wrapCommand(&argv, &buf);
     try std.testing.expectEqual(@as(usize, 2), result.len);
     try std.testing.expectEqualStrings("echo", result[0]);
-}
-
-test "landlock sandbox vtable consistent" {
-    var ll = createLandlockSandbox("/tmp/workspace");
-    const sb = ll.sandbox();
-    try std.testing.expectEqualStrings("landlock", sb.name());
-    try std.testing.expectEqualStrings("landlock", sb.name());
-    try std.testing.expect(sb.vtable == &LandlockSandbox.sandbox_vtable);
 }

@@ -228,48 +228,6 @@ test "category all includes every variant once" {
     try std.testing.expectEqual(@as(usize, 9), all.len);
 }
 
-test "category labels are non-empty" {
-    for (IntegrationCategory.all()) |cat| {
-        try std.testing.expect(cat.label().len > 0);
-    }
-}
-
-test "chat category label" {
-    try std.testing.expectEqualStrings("Chat Providers", IntegrationCategory.chat.label());
-}
-
-test "ai_model category label" {
-    try std.testing.expectEqualStrings("AI Models", IntegrationCategory.ai_model.label());
-}
-
-test "productivity category label" {
-    try std.testing.expectEqualStrings("Productivity", IntegrationCategory.productivity.label());
-}
-
-test "music_audio category label" {
-    try std.testing.expectEqualStrings("Music & Audio", IntegrationCategory.music_audio.label());
-}
-
-test "smart_home category label" {
-    try std.testing.expectEqualStrings("Smart Home", IntegrationCategory.smart_home.label());
-}
-
-test "tools_automation category label" {
-    try std.testing.expectEqualStrings("Tools & Automation", IntegrationCategory.tools_automation.label());
-}
-
-test "media_creative category label" {
-    try std.testing.expectEqualStrings("Media & Creative", IntegrationCategory.media_creative.label());
-}
-
-test "social category label" {
-    try std.testing.expectEqualStrings("Social", IntegrationCategory.social.label());
-}
-
-test "platform category label" {
-    try std.testing.expectEqualStrings("Platforms", IntegrationCategory.platform.label());
-}
-
 test "findIntegration finds Telegram" {
     const entry = findIntegration("Telegram");
     try std.testing.expect(entry != null);

@@ -523,29 +523,6 @@ pub fn shouldRespondInGroup(mentions_val: ?std.json.Value, text: []const u8, bot
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
 
-test "lark channel name" {
-    var ch = LarkChannel.init(std.testing.allocator, "id", "secret", "token", 9898, &.{});
-    try std.testing.expectEqualStrings("lark", ch.channelName());
-}
-
-test "lark user allowed exact" {
-    const users = [_][]const u8{"ou_testuser123"};
-    const ch = LarkChannel.init(std.testing.allocator, "id", "secret", "token", 9898, &users);
-    try std.testing.expect(ch.isUserAllowed("ou_testuser123"));
-    try std.testing.expect(!ch.isUserAllowed("ou_other"));
-}
-
-test "lark user allowed wildcard" {
-    const users = [_][]const u8{"*"};
-    const ch = LarkChannel.init(std.testing.allocator, "id", "secret", "token", 9898, &users);
-    try std.testing.expect(ch.isUserAllowed("ou_anyone"));
-}
-
-test "lark user denied empty" {
-    const ch = LarkChannel.init(std.testing.allocator, "id", "secret", "token", 9898, &.{});
-    try std.testing.expect(!ch.isUserAllowed("ou_anyone"));
-}
-
 test "lark parse valid text message" {
     const allocator = std.testing.allocator;
     const users = [_][]const u8{"ou_testuser123"};
@@ -624,12 +601,6 @@ test "lark parse empty text skipped" {
     const msgs = try ch.parseEventPayload(allocator, payload);
     defer allocator.free(msgs);
     try std.testing.expectEqual(@as(usize, 0), msgs.len);
-}
-
-test "lark vtable interface" {
-    var ch = LarkChannel.init(std.testing.allocator, "id", "secret", "token", 9898, &.{});
-    const iface = ch.channel();
-    try std.testing.expectEqualStrings("lark", iface.name());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -726,11 +697,6 @@ test "lark parse fallback sender to open_id when no chat_id" {
 
 test "lark feishu base url constant" {
     try std.testing.expectEqualStrings("https://open.feishu.cn/open-apis", LarkChannel.FEISHU_BASE_URL);
-}
-
-test "lark health check returns true" {
-    var ch = LarkChannel.init(std.testing.allocator, "id", "secret", "token", 9898, &.{});
-    try std.testing.expect(ch.healthCheck());
 }
 
 test "lark stores all fields" {

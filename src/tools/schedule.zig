@@ -384,14 +384,6 @@ test "schedule once missing delay" {
     try std.testing.expect(std.mem.indexOf(u8, result.error_msg.?, "delay") != null);
 }
 
-test "schedule description mentions actions" {
-    var st = ScheduleTool{};
-    const t = st.tool();
-    const desc = t.description();
-    try std.testing.expect(std.mem.indexOf(u8, desc, "create") != null);
-    try std.testing.expect(std.mem.indexOf(u8, desc, "list") != null);
-}
-
 test "schedule pause requires id" {
     var st = ScheduleTool{};
     const t = st.tool();

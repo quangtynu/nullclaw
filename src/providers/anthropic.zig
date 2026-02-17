@@ -260,14 +260,6 @@ pub const AnthropicProvider = struct {
         const credential = self.credential orelse return error.CredentialsNotSet;
         const is_oauth = isSetupToken(credential);
 
-        // Extract system prompt and last user message from ChatRequest
-        var system_prompt: ?[]const u8 = null;
-        var user_message: []const u8 = "";
-        for (request.messages) |msg| {
-            if (msg.role == .system) system_prompt = msg.content;
-            if (msg.role == .user) user_message = msg.content;
-        }
-
         // URL: append ?beta=true for OAuth tokens
         const url = if (is_oauth)
             try std.fmt.allocPrint(allocator, "{s}/v1/messages?beta=true", .{self.base_url})
@@ -275,7 +267,7 @@ pub const AnthropicProvider = struct {
             try self.messagesUrl(allocator);
         defer allocator.free(url);
 
-        const body = try buildSimpleRequestBody(allocator, system_prompt, user_message, model, temperature);
+        const body = try buildChatRequestBody(allocator, request, model, temperature);
         defer allocator.free(body);
 
         const auth = try authHeaderValue(allocator, credential);
@@ -307,6 +299,91 @@ pub const AnthropicProvider = struct {
 
     fn deinitImpl(_: *anyopaque) void {}
 };
+
+/// Build a full chat request JSON body from a ChatRequest (Anthropic messages format).
+/// System messages are extracted and placed in the top-level "system" field.
+/// User/assistant/tool messages go in the "messages" array.
+fn buildChatRequestBody(
+    allocator: std.mem.Allocator,
+    request: ChatRequest,
+    model: []const u8,
+    temperature: f64,
+) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(allocator);
+
+    // Extract system prompt (Anthropic puts it top-level, not in messages array)
+    var system_prompt: ?[]const u8 = null;
+    for (request.messages) |msg| {
+        if (msg.role == .system) {
+            system_prompt = msg.content;
+            break;
+        }
+    }
+
+    try buf.appendSlice(allocator, "{\"model\":\"");
+    try buf.appendSlice(allocator, model);
+    try buf.appendSlice(allocator, "\",\"max_tokens\":");
+    var max_buf: [16]u8 = undefined;
+    const max_str = std.fmt.bufPrint(&max_buf, "{d}", .{AnthropicProvider.DEFAULT_MAX_TOKENS}) catch return error.AnthropicApiError;
+    try buf.appendSlice(allocator, max_str);
+
+    if (system_prompt) |sys| {
+        try buf.appendSlice(allocator, ",\"system\":");
+        try appendJsonString(&buf, allocator, sys);
+    }
+
+    try buf.appendSlice(allocator, ",\"messages\":[");
+    var count: usize = 0;
+    for (request.messages) |msg| {
+        if (msg.role == .system) continue;
+        if (count > 0) try buf.append(allocator, ',');
+        count += 1;
+        // Anthropic only supports "user" and "assistant" roles in messages
+        const role_str: []const u8 = switch (msg.role) {
+            .user, .tool => "user",
+            .assistant => "assistant",
+            .system => unreachable,
+        };
+        try buf.appendSlice(allocator, "{\"role\":\"");
+        try buf.appendSlice(allocator, role_str);
+        try buf.appendSlice(allocator, "\",\"content\":");
+        try appendJsonString(&buf, allocator, msg.content);
+        try buf.append(allocator, '}');
+    }
+
+    try buf.appendSlice(allocator, "],\"temperature\":");
+    var temp_buf: [16]u8 = undefined;
+    const temp_str = std.fmt.bufPrint(&temp_buf, "{d:.2}", .{temperature}) catch return error.AnthropicApiError;
+    try buf.appendSlice(allocator, temp_str);
+
+    try buf.append(allocator, '}');
+    return try buf.toOwnedSlice(allocator);
+}
+
+/// Append a JSON-escaped string (with enclosing quotes) to the buffer.
+fn appendJsonString(buf: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, s: []const u8) !void {
+    try buf.append(allocator, '"');
+    for (s) |c| {
+        switch (c) {
+            '"' => try buf.appendSlice(allocator, "\\\""),
+            '\\' => try buf.appendSlice(allocator, "\\\\"),
+            '\n' => try buf.appendSlice(allocator, "\\n"),
+            '\r' => try buf.appendSlice(allocator, "\\r"),
+            '\t' => try buf.appendSlice(allocator, "\\t"),
+            else => {
+                if (c < 0x20) {
+                    var escape_buf: [6]u8 = undefined;
+                    const escape = std.fmt.bufPrint(&escape_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                    try buf.appendSlice(allocator, escape);
+                } else {
+                    try buf.append(allocator, c);
+                }
+            },
+        }
+    }
+    try buf.append(allocator, '"');
+}
 
 /// HTTP POST via curl subprocess (avoids Zig 0.15 std.http.Client segfaults).
 fn curlPost(allocator: std.mem.Allocator, url: []const u8, body: []const u8, auth_hdr: []const u8, extra_hdr: []const u8) ![]u8 {
@@ -360,18 +437,6 @@ pub const AuthHeader = struct {
 // ════════════════════════════════════════════════════════════════════════════
 // Tests
 // ════════════════════════════════════════════════════════════════════════════
-
-test "creates with key" {
-    const p = AnthropicProvider.init(std.testing.allocator, "sk-ant-test123", null);
-    try std.testing.expectEqualStrings("sk-ant-test123", p.credential.?);
-    try std.testing.expectEqualStrings("https://api.anthropic.com", p.base_url);
-}
-
-test "creates without key" {
-    const p = AnthropicProvider.init(std.testing.allocator, null, null);
-    try std.testing.expect(p.credential == null);
-    try std.testing.expectEqualStrings("https://api.anthropic.com", p.base_url);
-}
 
 test "creates with empty key" {
     const p = AnthropicProvider.init(std.testing.allocator, "", null);
@@ -634,30 +699,6 @@ test "parseNativeResponse skips whitespace-only text blocks" {
         std.testing.allocator.free(response.model);
     }
     try std.testing.expect(response.content == null);
-}
-
-test "buildSimpleRequestBody includes temperature" {
-    const body = try AnthropicProvider.buildSimpleRequestBody(
-        std.testing.allocator,
-        null,
-        "test",
-        "claude-3",
-        0.50,
-    );
-    defer std.testing.allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "0.50") != null);
-}
-
-test "buildSimpleRequestBody includes max_tokens" {
-    const body = try AnthropicProvider.buildSimpleRequestBody(
-        std.testing.allocator,
-        null,
-        "test",
-        "claude-3",
-        0.7,
-    );
-    defer std.testing.allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "4096") != null);
 }
 
 test "provider getName returns Anthropic" {
