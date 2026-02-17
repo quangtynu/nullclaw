@@ -536,6 +536,40 @@ pub fn complete(allocator: std.mem.Allocator, cfg: anytype, prompt: []const u8) 
     return try extractContent(allocator, response_body);
 }
 
+/// Like complete() but prepends a system prompt. OpenAI-compatible format.
+pub fn completeWithSystem(allocator: std.mem.Allocator, cfg: anytype, system_prompt: []const u8, prompt: []const u8) ![]const u8 {
+    const api_key = cfg.api_key orelse return error.NoApiKey;
+    const url = providerUrl(cfg.default_provider);
+    const model = cfg.default_model orelse "anthropic/claude-sonnet-4-5-20250929";
+    const body_str = try buildRequestBodyWithSystem(allocator, model, system_prompt, prompt, cfg.temperature, cfg.max_tokens);
+    defer allocator.free(body_str);
+
+    const auth_val = try std.fmt.allocPrint(allocator, "Bearer {s}", .{api_key});
+    defer allocator.free(auth_val);
+
+    var client: std.http.Client = .{ .allocator = allocator };
+    defer client.deinit();
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer allocator.free(aw.writer.buffer);
+
+    const result = try client.fetch(.{
+        .location = .{ .url = url },
+        .method = .POST,
+        .payload = body_str,
+        .extra_headers = &.{
+            .{ .name = "Authorization", .value = auth_val },
+            .{ .name = "Content-Type", .value = "application/json" },
+        },
+        .response_writer = &aw.writer,
+    });
+
+    if (result.status != .ok) return error.ProviderError;
+
+    const response_body = aw.writer.buffer[0..aw.writer.end];
+    return try extractContent(allocator, response_body);
+}
+
 /// Provider URL mapping for the legacy complete() function.
 pub fn providerUrl(provider_name: []const u8) []const u8 {
     if (std.mem.eql(u8, provider_name, "anthropic")) {
@@ -556,6 +590,36 @@ pub fn buildRequestBody(allocator: std.mem.Allocator, model: []const u8, prompt:
     return std.fmt.allocPrint(allocator,
         \\{{"model":"{s}","messages":[{{"role":"user","content":"{s}"}}],"temperature":{d:.1},"max_tokens":{d}}}
     , .{ model, prompt, temperature, max_tokens });
+}
+
+/// Build a JSON request body with a system prompt (OpenAI-compatible format).
+pub fn buildRequestBodyWithSystem(allocator: std.mem.Allocator, model: []const u8, system: []const u8, prompt: []const u8, temperature: f64, max_tokens: u32) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(allocator);
+    const w = buf.writer(allocator);
+    try w.writeAll("{\"model\":\"");
+    try w.writeAll(model);
+    try w.writeAll("\",\"messages\":[{\"role\":\"system\",\"content\":");
+    try appendJsonString(&buf, allocator, system);
+    try w.writeAll("},{\"role\":\"user\",\"content\":");
+    try appendJsonString(&buf, allocator, prompt);
+    try std.fmt.format(w, "}}],\"temperature\":{d:.1},\"max_tokens\":{d}}}", .{ temperature, max_tokens });
+    return try buf.toOwnedSlice(allocator);
+}
+
+fn appendJsonString(buf: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, s: []const u8) !void {
+    try buf.append(allocator, '"');
+    for (s) |c| {
+        switch (c) {
+            '"' => try buf.appendSlice(allocator, "\\\""),
+            '\\' => try buf.appendSlice(allocator, "\\\\"),
+            '\n' => try buf.appendSlice(allocator, "\\n"),
+            '\r' => try buf.appendSlice(allocator, "\\r"),
+            '\t' => try buf.appendSlice(allocator, "\\t"),
+            else => try buf.append(allocator, c),
+        }
+    }
+    try buf.append(allocator, '"');
 }
 
 /// Extract text content from a provider JSON response.

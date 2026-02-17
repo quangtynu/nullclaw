@@ -690,6 +690,22 @@ fn runChannelStart(allocator: std.mem.Allocator, args: []const []const u8) !void
 
     var tg = yc.channels.telegram.TelegramChannel.init(allocator, telegram_config.bot_token, allowed);
 
+    // Build system prompt from workspace SOUL.md and identity files
+    const tools = yc.tools.allTools(allocator, config.workspace_dir, .{
+        .http_enabled = config.http_request.enabled,
+        .browser_enabled = config.browser.enabled,
+    }) catch &.{};
+    defer if (tools.len > 0) allocator.free(tools);
+
+    const system_prompt = yc.agent.prompt.buildSystemPrompt(allocator, .{
+        .workspace_dir = config.workspace_dir,
+        .model_name = model,
+        .tools = tools,
+    }) catch try allocator.dupe(u8, "You are nullclaw, a helpful AI assistant. Be concise.");
+    defer allocator.free(system_prompt);
+
+    std.debug.print("  System prompt: {d} chars\n\n", .{system_prompt.len});
+
     // Bot loop: poll → think → reply
     while (true) {
         const messages = tg.pollUpdates(allocator) catch |err| {
@@ -701,8 +717,8 @@ fn runChannelStart(allocator: std.mem.Allocator, args: []const []const u8) !void
         for (messages) |msg| {
             std.debug.print("[{s}] {s}: {s}\n", .{ msg.channel, msg.id, msg.content });
 
-            // Route to configured provider via complete()
-            const reply = yc.providers.complete(allocator, &config, msg.content) catch |err| {
+            // Route to configured provider with SOUL.md system prompt
+            const reply = yc.providers.completeWithSystem(allocator, &config, system_prompt, msg.content) catch |err| {
                 std.debug.print("  LLM error: {}\n", .{err});
                 tg.sendMessage(msg.sender, "Sorry, I encountered an error.") catch {};
                 continue;
