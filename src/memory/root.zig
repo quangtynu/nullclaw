@@ -250,24 +250,33 @@ pub fn createMemory(allocator: std.mem.Allocator, backend_name: []const u8, path
     const kind = classifyBackend(backend_name);
     return switch (kind) {
         .sqlite_backend => {
-            var impl_ = try SqliteMemory.init(allocator, path);
+            const impl_ = try allocator.create(SqliteMemory);
+            errdefer allocator.destroy(impl_);
+            impl_.* = try SqliteMemory.init(allocator, path);
             return impl_.memory();
         },
         .markdown_backend => {
-            var impl_ = try MarkdownMemory.init(allocator, std.mem.span(path));
+            const impl_ = try allocator.create(MarkdownMemory);
+            errdefer allocator.destroy(impl_);
+            impl_.* = try MarkdownMemory.init(allocator, std.mem.span(path));
             return impl_.memory();
         },
         .lucid_backend => {
-            var impl_ = try LucidMemory.init(allocator, path, std.mem.span(path));
+            const impl_ = try allocator.create(LucidMemory);
+            errdefer allocator.destroy(impl_);
+            impl_.* = try LucidMemory.init(allocator, path, std.mem.span(path));
             return impl_.memory();
         },
         .none_backend => {
-            var impl_ = NoneMemory.init();
+            const impl_ = try allocator.create(NoneMemory);
+            impl_.* = NoneMemory.init();
             return impl_.memory();
         },
         .unknown => {
             // Fallback to markdown for unknown backends
-            var impl_ = try MarkdownMemory.init(allocator, std.mem.span(path));
+            const impl_ = try allocator.create(MarkdownMemory);
+            errdefer allocator.destroy(impl_);
+            impl_.* = try MarkdownMemory.init(allocator, std.mem.span(path));
             return impl_.memory();
         },
     };

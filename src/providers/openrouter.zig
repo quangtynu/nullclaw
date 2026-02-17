@@ -352,9 +352,8 @@ pub const OpenRouterProvider = struct {
             if (i > 0) try buf.append(allocator, ',');
             try buf.appendSlice(allocator, "{\"role\":\"");
             try buf.appendSlice(allocator, msg.role.toSlice());
-            try buf.appendSlice(allocator, "\",\"content\":\"");
-            try buf.appendSlice(allocator, msg.content);
-            try buf.append(allocator, '"');
+            try buf.appendSlice(allocator, "\",\"content\":");
+            try appendJsonString(&buf, allocator, msg.content);
             if (msg.tool_call_id) |tc_id| {
                 try buf.appendSlice(allocator, ",\"tool_call_id\":\"");
                 try buf.appendSlice(allocator, tc_id);
