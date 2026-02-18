@@ -243,8 +243,8 @@ pub const SecurityPolicy = struct {
         if (self.workspace_only and expanded.len > 0 and expanded[0] == '/') return false;
 
         // Block forbidden paths
+        var fb_buf: [4096]u8 = undefined;
         for (self.forbidden_paths) |forbidden| {
-            var fb_buf: [4096]u8 = undefined;
             const forbidden_expanded = expandTilde(forbidden, &fb_buf);
             if (pathStartsWith(expanded, forbidden_expanded)) return false;
         }

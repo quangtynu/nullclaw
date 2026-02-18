@@ -773,6 +773,8 @@ fn runChannelStart(allocator: std.mem.Allocator, args: []const []const u8) !void
     var session_mgr = yc.session.SessionManager.init(allocator, &config, provider_i, tools, mem_opt, obs);
     defer session_mgr.deinit();
 
+    var evict_counter: u32 = 0;
+
     // Bot loop: poll → full agent loop (tool calling) → reply
     while (true) {
         const messages = tg.pollUpdates(allocator) catch |err| {
@@ -811,6 +813,13 @@ fn runChannelStart(allocator: std.mem.Allocator, args: []const []const u8) !void
                 allocator.free(msg.content);
             }
             allocator.free(messages);
+        }
+
+        // Periodically evict sessions idle longer than the configured timeout
+        evict_counter += 1;
+        if (evict_counter >= 100) {
+            evict_counter = 0;
+            _ = session_mgr.evictIdle(config.agent.session_idle_timeout_secs);
         }
     }
 }

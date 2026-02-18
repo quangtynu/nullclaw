@@ -91,6 +91,7 @@ pub const AgentConfig = struct {
     parallel_tools: bool = false,
     tool_dispatcher: []const u8 = "auto",
     token_limit: u64 = 128_000,
+    session_idle_timeout_secs: u64 = 1800, // evict idle sessions after 30 min
 };
 
 pub const ModelRouteConfig = struct {

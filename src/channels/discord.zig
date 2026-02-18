@@ -199,7 +199,7 @@ pub const DiscordChannel = struct {
     fn vtableStart(ptr: *anyopaque) anyerror!void {
         const self: *DiscordChannel = @ptrCast(@alignCast(ptr));
         self.running.store(true, .release);
-        self.gateway_thread = try std.Thread.spawn(.{}, gatewayLoop, .{self});
+        self.gateway_thread = try std.Thread.spawn(.{ .stack_size = 256 * 1024 }, gatewayLoop, .{self});
     }
 
     fn vtableStop(ptr: *anyopaque) void {
@@ -294,7 +294,7 @@ pub const DiscordChannel = struct {
         // double-deinit with the defer block below once spawn succeeds).
         self.heartbeat_stop.store(false, .release);
         self.heartbeat_interval_ms.store(0, .release);
-        const hbt = std.Thread.spawn(.{}, heartbeatLoop, .{ self, &ws }) catch |err| {
+        const hbt = std.Thread.spawn(.{ .stack_size = 128 * 1024 }, heartbeatLoop, .{ self, &ws }) catch |err| {
             ws.deinit();
             return err;
         };

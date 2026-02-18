@@ -830,7 +830,7 @@ pub const TypingIndicator = struct {
         self.chat_id_len = chat_id.len;
         self.running.store(true, .release);
 
-        self.thread = std.Thread.spawn(.{}, typingLoop, .{self}) catch null;
+        self.thread = std.Thread.spawn(.{ .stack_size = 128 * 1024 }, typingLoop, .{self}) catch null;
     }
 
     /// Stop the periodic typing indicator.

@@ -434,16 +434,16 @@ pub const Agent = struct {
             }
         }
 
-        // Enrich message with memory context
+        // Enrich message with memory context (always returns owned slice; ownership → history)
         const enriched = if (self.mem) |mem|
             try memory_loader.enrichMessage(self.allocator, mem, user_message)
         else
             try self.allocator.dupe(u8, user_message);
-        defer self.allocator.free(enriched);
+        errdefer self.allocator.free(enriched);
 
         try self.history.append(self.allocator, .{
             .role = .user,
-            .content = try self.allocator.dupe(u8, enriched),
+            .content = enriched,
         });
 
         // Record agent event
@@ -681,10 +681,19 @@ pub const Agent = struct {
                 w.flush() catch {};
             }
 
-            // Record assistant message with tool calls in history
+            // Record assistant message with tool calls in history.
+            // Native path (free_assistant_history=true): transfer ownership directly to avoid
+            // a redundant allocation; clear the flag so the outer defer does not double-free.
+            // XML path (free_assistant_history=false): response_text is not owned, must dupe.
+            const assistant_content: []const u8 = if (free_assistant_history) blk: {
+                free_assistant_history = false;
+                break :blk assistant_history_content;
+            } else try self.allocator.dupe(u8, assistant_history_content);
+            errdefer self.allocator.free(assistant_content);
+
             try self.history.append(self.allocator, .{
                 .role = .assistant,
-                .content = try self.allocator.dupe(u8, assistant_history_content),
+                .content = assistant_content,
             });
 
             // Execute each tool call

@@ -502,7 +502,7 @@ test "concurrent getOrCreate same key — single Session created" {
     var handles: [num_threads]std.Thread = undefined;
 
     for (0..num_threads) |t| {
-        handles[t] = try std.Thread.spawn(.{}, struct {
+        handles[t] = try std.Thread.spawn(.{ .stack_size = 64 * 1024 }, struct {
             fn run(mgr: *SessionManager, out: **Session) void {
                 out.* = mgr.getOrCreate("shared:key") catch unreachable;
             }
@@ -532,7 +532,7 @@ test "concurrent getOrCreate different keys — separate Sessions" {
 
     for (0..num_threads) |t| {
         keys[t] = std.fmt.bufPrint(&key_bufs[t], "key:{d}", .{t}) catch "?";
-        handles[t] = try std.Thread.spawn(.{}, struct {
+        handles[t] = try std.Thread.spawn(.{ .stack_size = 64 * 1024 }, struct {
             fn run(mgr: *SessionManager, key: []const u8, out: **Session) void {
                 out.* = mgr.getOrCreate(key) catch unreachable;
             }
@@ -563,7 +563,7 @@ test "concurrent processMessage different keys — no crash" {
 
     for (0..num_threads) |t| {
         keys[t] = std.fmt.bufPrint(&key_bufs[t], "conc:{d}", .{t}) catch "?";
-        handles[t] = try std.Thread.spawn(.{}, struct {
+        handles[t] = try std.Thread.spawn(.{ .stack_size = 64 * 1024 }, struct {
             fn run(mgr: *SessionManager, key: []const u8, alloc: Allocator) void {
                 for (0..3) |_| {
                     const resp = mgr.processMessage(key, "hello") catch return;

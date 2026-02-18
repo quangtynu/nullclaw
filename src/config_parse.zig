@@ -289,6 +289,9 @@ pub fn parseJson(self: *Config, content: []const u8) !void {
             if (ag.object.get("tool_dispatcher")) |v| {
                 if (v == .string) self.agent.tool_dispatcher = try self.allocator.dupe(u8, v.string);
             }
+            if (ag.object.get("session_idle_timeout_secs")) |v| {
+                if (v == .integer) self.agent.session_idle_timeout_secs = @intCast(v.integer);
+            }
         }
     }
 

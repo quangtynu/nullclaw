@@ -515,7 +515,7 @@ test "dispatcher runs in a separate thread" {
     var stats = DispatchStats{};
 
     // Spawn dispatcher thread
-    const thread = try std.Thread.spawn(.{}, runOutboundDispatcher, .{
+    const thread = try std.Thread.spawn(.{ .stack_size = 64 * 1024 }, runOutboundDispatcher, .{
         allocator, &event_bus, &reg, &stats,
     });
 
@@ -548,14 +548,14 @@ test "dispatcher concurrent producers + single dispatcher" {
     const total = num_producers * msgs_per_producer;
 
     // Spawn dispatcher
-    const dispatcher = try std.Thread.spawn(.{}, runOutboundDispatcher, .{
+    const dispatcher = try std.Thread.spawn(.{ .stack_size = 64 * 1024 }, runOutboundDispatcher, .{
         allocator, &event_bus, &reg, &stats,
     });
 
     // Spawn producers
     var producers: [num_producers]std.Thread = undefined;
     for (0..num_producers) |i| {
-        producers[i] = try std.Thread.spawn(.{}, struct {
+        producers[i] = try std.Thread.spawn(.{ .stack_size = 64 * 1024 }, struct {
             fn run(b: *bus.Bus, a: Allocator) void {
                 for (0..msgs_per_producer) |_| {
                     const m = bus.makeOutbound(a, "test", "c", "x") catch return;

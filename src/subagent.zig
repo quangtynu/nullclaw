@@ -139,7 +139,7 @@ pub const SubagentManager = struct {
             .origin_chat_id = try self.allocator.dupe(u8, origin_chat_id),
         };
 
-        state.thread = try std.Thread.spawn(.{}, subagentThreadFn, .{ctx});
+        state.thread = try std.Thread.spawn(.{ .stack_size = 512 * 1024 }, subagentThreadFn, .{ctx});
 
         return task_id;
     }

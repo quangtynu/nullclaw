@@ -377,7 +377,7 @@ pub fn startHotplugMonitor(monitor: *HotplugMonitor) !void {
     switch (comptime builtin.os.tag) {
         .linux => {
             monitor.running = std.atomic.Value(bool).init(true);
-            monitor.thread = try std.Thread.spawn(.{}, runLinuxMonitor, .{monitor});
+            monitor.thread = try std.Thread.spawn(.{ .stack_size = 256 * 1024 }, runLinuxMonitor, .{monitor});
         },
         .macos => {
             std.log.info("hotplug monitoring not available on macOS", .{});

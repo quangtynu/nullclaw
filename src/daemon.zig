@@ -259,7 +259,7 @@ pub fn run(allocator: std.mem.Allocator, config: *const Config, host: []const u8
 
     // Spawn gateway thread
     state.markRunning("gateway");
-    const gw_thread = std.Thread.spawn(.{}, gatewayThread, .{ allocator, host, port, &state }) catch |err| {
+    const gw_thread = std.Thread.spawn(.{ .stack_size = 256 * 1024 }, gatewayThread, .{ allocator, host, port, &state }) catch |err| {
         state.markError("gateway", @errorName(err));
         try stdout.print("Failed to spawn gateway: {}\n", .{err});
         return err;
@@ -269,7 +269,7 @@ pub fn run(allocator: std.mem.Allocator, config: *const Config, host: []const u8
     var hb_thread: ?std.Thread = null;
     if (config.heartbeat.enabled) {
         state.markRunning("heartbeat");
-        if (std.Thread.spawn(.{}, heartbeatThread, .{ allocator, config, &state })) |thread| {
+        if (std.Thread.spawn(.{ .stack_size = 128 * 1024 }, heartbeatThread, .{ allocator, config, &state })) |thread| {
             hb_thread = thread;
         } else |err| {
             state.markError("heartbeat", @errorName(err));
@@ -284,7 +284,7 @@ pub fn run(allocator: std.mem.Allocator, config: *const Config, host: []const u8
     var sched_thread: ?std.Thread = null;
     if (config.scheduler.enabled) {
         state.markRunning("scheduler");
-        if (std.Thread.spawn(.{}, schedulerThread, .{ allocator, config, &state, &event_bus })) |thread| {
+        if (std.Thread.spawn(.{ .stack_size = 256 * 1024 }, schedulerThread, .{ allocator, config, &state, &event_bus })) |thread| {
             sched_thread = thread;
         } else |err| {
             state.markError("scheduler", @errorName(err));
@@ -295,7 +295,7 @@ pub fn run(allocator: std.mem.Allocator, config: *const Config, host: []const u8
     // Spawn channel watcher thread (only if channels are configured)
     var chan_thread: ?std.Thread = null;
     if (hasSupervisedChannels(config)) {
-        if (std.Thread.spawn(.{}, channelWatcherThread, .{&state})) |thread| {
+        if (std.Thread.spawn(.{ .stack_size = 128 * 1024 }, channelWatcherThread, .{&state})) |thread| {
             chan_thread = thread;
         } else |err| {
             state.markError("channels", @errorName(err));
@@ -311,7 +311,7 @@ pub fn run(allocator: std.mem.Allocator, config: *const Config, host: []const u8
     state.addComponent("outbound_dispatcher");
 
     var dispatcher_thread: ?std.Thread = null;
-    if (std.Thread.spawn(.{}, dispatch.runOutboundDispatcher, .{
+    if (std.Thread.spawn(.{ .stack_size = 512 * 1024 }, dispatch.runOutboundDispatcher, .{
         allocator, &event_bus, &channel_registry, &dispatch_stats,
     })) |thread| {
         dispatcher_thread = thread;
@@ -432,7 +432,7 @@ test "channelWatcherThread respects shutdown" {
     var state = DaemonState{};
     state.addComponent("channels");
 
-    const thread = try std.Thread.spawn(.{}, channelWatcherThread, .{&state});
+    const thread = try std.Thread.spawn(.{ .stack_size = 128 * 1024 }, channelWatcherThread, .{&state});
     thread.join();
 
     // Channel component should have been marked running before the loop
