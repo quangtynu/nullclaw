@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig 0.15.2
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Install SQLite (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libsqlite3-dev
+
+      - name: Install SQLite (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sqlite
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          SQLITE_INC=$(pkg-config --variable=includedir sqlite3)
+          SQLITE_LIB=$(pkg-config --variable=libdir sqlite3)
+          zig build test --summary all \
+            -Dsqlite-include="$SQLITE_INC" \
+            -Dsqlite-lib="$SQLITE_LIB"
+
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
+        run: zig build test --summary all
+
+      - name: Build ReleaseSmall (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          SQLITE_INC=$(pkg-config --variable=includedir sqlite3)
+          SQLITE_LIB=$(pkg-config --variable=libdir sqlite3)
+          zig build -Doptimize=ReleaseSmall \
+            -Dsqlite-include="$SQLITE_INC" \
+            -Dsqlite-lib="$SQLITE_LIB"
+
+      - name: Build ReleaseSmall (macOS)
+        if: runner.os == 'macOS'
+        run: zig build -Doptimize=ReleaseSmall
