@@ -932,7 +932,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         ollama: providers.ollama.OllamaProvider,
         compatible: providers.compatible.OpenAiCompatibleProvider,
         claude_cli: providers.claude_cli.ClaudeCliProvider,
-        codex_cli: providers.claude_cli.CodexCliProvider,
+        codex_cli: providers.codex_cli.CodexCliProvider,
     };
 
     const kind = providers.classifyProvider(cfg.default_provider);
