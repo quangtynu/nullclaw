@@ -269,16 +269,14 @@ fn curlPostFromFile(
 
 /// Download a Telegram voice/audio file and transcribe it.
 /// Returns the transcribed text, or null if transcription is unavailable
-/// (no Groq API key configured or file download fails).
-/// `groq_api_key` from config takes priority; falls back to GROQ_API_KEY env var.
+/// (no GROQ_API_KEY or file download fails).
 pub fn transcribeTelegramVoice(
     allocator: std.mem.Allocator,
     bot_token: []const u8,
     file_id: []const u8,
-    groq_api_key: ?[]const u8,
 ) ?[]const u8 {
-    // Config key takes priority, then env var
-    const api_key = groq_api_key orelse std.posix.getenv("GROQ_API_KEY") orelse return null;
+    // Check for GROQ_API_KEY
+    const api_key = std.posix.getenv("GROQ_API_KEY") orelse return null;
 
     // 1. Call getFile to get file_path
     const tg_file_path = getFilePath(allocator, bot_token, file_id) catch |err| {
@@ -491,7 +489,7 @@ test "voice transcribeFile returns error for nonexistent file" {
 }
 
 test "voice transcribeTelegramVoice returns null without GROQ_API_KEY" {
-    // GROQ_API_KEY is not set in test env and no config key → null
-    const result = transcribeTelegramVoice(std.testing.allocator, "fake:token", "fake_file_id", null);
+    // GROQ_API_KEY is not set in test env, so should return null
+    const result = transcribeTelegramVoice(std.testing.allocator, "fake:token", "fake_file_id");
     try std.testing.expect(result == null);
 }
