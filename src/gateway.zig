@@ -5,7 +5,7 @@
 //!   - Idempotency store (deduplicates webhook requests)
 //!   - Body size limits (64KB max)
 //!   - Request timeouts (30s)
-//!   - Bearer token authentication (paired_tokens)
+//!   - Bearer token authentication (PairingGuard)
 //!   - Endpoints: /health, /ready, /pair, /webhook, /whatsapp, /telegram
 //!
 //! Uses std.http.Server (built-in, no external deps).
@@ -206,7 +206,6 @@ pub const GatewayState = struct {
     idempotency: IdempotencyStore,
     whatsapp_verify_token: []const u8,
     whatsapp_app_secret: []const u8,
-    paired_tokens: []const []const u8,
     telegram_bot_token: []const u8,
     pairing_guard: ?PairingGuard,
 
@@ -221,7 +220,6 @@ pub const GatewayState = struct {
             .idempotency = IdempotencyStore.init(300),
             .whatsapp_verify_token = verify_token,
             .whatsapp_app_secret = "",
-            .paired_tokens = &.{},
             .telegram_bot_token = "",
             .pairing_guard = null,
         };
@@ -381,31 +379,6 @@ pub fn isWebhookAuthorized(pairing_guard: ?*const PairingGuard, bearer_token: ?[
     if (!guard.requirePairing()) return true;
     const token = bearer_token orelse return false;
     return guard.isAuthenticated(token);
-}
-
-pub const PairAttemptResult = union(enum) {
-    paired: []const u8,
-    missing_code,
-    invalid_code,
-    already_paired,
-    disabled,
-    locked_out,
-    internal_error,
-};
-
-/// Process a /pair request against the in-memory pairing guard.
-/// Caller owns returned token memory when result is `.paired`.
-pub fn attemptPairing(guard: *PairingGuard, pairing_code: ?[]const u8) PairAttemptResult {
-    if (!guard.requirePairing()) return .disabled;
-    if (guard.pairingCode() == null) return .already_paired;
-
-    const code = pairing_code orelse return .missing_code;
-    const token_opt = guard.tryPair(code) catch |err| switch (err) {
-        error.LockedOut => return .locked_out,
-        else => return .internal_error,
-    };
-    if (token_opt) |token| return .{ .paired = token };
-    return .invalid_code;
 }
 
 /// Format the /pair success payload. Returns null when buffer is too small.
@@ -669,7 +642,6 @@ pub fn run(allocator: std.mem.Allocator, host: []const u8, port: u16) !void {
             cfg.gateway.webhook_rate_limit_per_minute,
         );
         state.idempotency = IdempotencyStore.init(cfg.gateway.idempotency_ttl_secs);
-        state.paired_tokens = cfg.gateway.paired_tokens;
         state.pairing_guard = try PairingGuard.init(
             allocator,
             cfg.gateway.require_pairing,
@@ -845,7 +817,7 @@ pub fn run(allocator: std.mem.Allocator, host: []const u8, port: u16) !void {
             } else {
                 if (state.pairing_guard) |*guard| {
                     const pairing_code = extractHeader(raw, "X-Pairing-Code");
-                    switch (attemptPairing(guard, pairing_code)) {
+                    switch (guard.attemptPair(pairing_code)) {
                         .paired => |token| {
                             defer allocator.free(token);
                             if (formatPairSuccessResponse(&pair_response_buf, token)) |pair_resp| {
@@ -1296,46 +1268,6 @@ test "isWebhookAuthorized requires valid bearer token when pairing enabled" {
     try std.testing.expect(!isWebhookAuthorized(&guard, "zc_invalid"));
 }
 
-test "attemptPairing returns missing_code when header absent" {
-    var guard = try PairingGuard.init(std.testing.allocator, true, &.{});
-    defer guard.deinit();
-
-    const result = attemptPairing(&guard, null);
-    try std.testing.expect(result == .missing_code);
-}
-
-test "attemptPairing succeeds with valid one-time code" {
-    var guard = try PairingGuard.init(std.testing.allocator, true, &.{});
-    defer guard.deinit();
-
-    const code = guard.pairingCode().?;
-    const result = attemptPairing(&guard, code);
-    switch (result) {
-        .paired => |token| {
-            defer std.testing.allocator.free(token);
-            try std.testing.expect(std.mem.startsWith(u8, token, "zc_"));
-        },
-        else => try std.testing.expect(false),
-    }
-}
-
-test "attemptPairing reports already_paired when no code is available" {
-    const tokens = [_][]const u8{"zc_existing"};
-    var guard = try PairingGuard.init(std.testing.allocator, true, &tokens);
-    defer guard.deinit();
-
-    const result = attemptPairing(&guard, "123456");
-    try std.testing.expect(result == .already_paired);
-}
-
-test "attemptPairing reports disabled when pairing is off" {
-    var guard = try PairingGuard.init(std.testing.allocator, false, &.{});
-    defer guard.deinit();
-
-    const result = attemptPairing(&guard, "123456");
-    try std.testing.expect(result == .disabled);
-}
-
 test "formatPairSuccessResponse includes paired token" {
     var buf: [256]u8 = undefined;
     const response = formatPairSuccessResponse(&buf, "zc_token_123") orelse unreachable;
@@ -1458,14 +1390,6 @@ test "extractBody returns null for no body" {
 test "extractBody returns null for no separator" {
     const raw = "GET /health HTTP/1.1\r\nHost: localhost\r\n";
     try std.testing.expect(extractBody(raw) == null);
-}
-
-// ── GatewayState paired_tokens tests ─────────────────────────────
-
-test "GatewayState init has empty paired_tokens" {
-    var state = GatewayState.init(std.testing.allocator);
-    defer state.deinit();
-    try std.testing.expectEqual(@as(usize, 0), state.paired_tokens.len);
 }
 
 test "GatewayState init has empty telegram_bot_token" {

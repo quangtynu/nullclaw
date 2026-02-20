@@ -48,6 +48,28 @@ pub const PairingGuard = struct {
         };
     }
 
+    pub const PairAttemptResult = union(enum) {
+        paired: []const u8,
+        missing_code,
+        invalid_code,
+        already_paired,
+        disabled,
+        locked_out,
+        internal_error,
+    };
+
+    pub fn attemptPair(self: *PairingGuard, pairing_code: ?[]const u8) PairAttemptResult {
+        if (!self.require_pairing_flag) return .disabled;
+        if (self.pairingCode() == null) return .already_paired;
+        const code = pairing_code orelse return .missing_code;
+        const token_opt = self.tryPair(code) catch |err| switch (err) {
+            error.LockedOut => return .locked_out,
+            else => return .internal_error,
+        };
+        if (token_opt) |token| return .{ .paired = token };
+        return .invalid_code;
+    }
+
     pub fn deinit(self: *PairingGuard) void {
         var it = self.paired_tokens.keyIterator();
         while (it.next()) |key| {
@@ -506,4 +528,46 @@ test "is paired returns true with tokens" {
     var guard = try PairingGuard.init(std.testing.allocator, true, &tokens);
     defer guard.deinit();
     try std.testing.expect(guard.isPaired());
+}
+
+// ── attemptPair tests ───────────────────────────────────────────
+
+test "attemptPair returns missing_code when header absent" {
+    var guard = try PairingGuard.init(std.testing.allocator, true, &.{});
+    defer guard.deinit();
+
+    const result = guard.attemptPair(null);
+    try std.testing.expect(result == .missing_code);
+}
+
+test "attemptPair succeeds with valid one-time code" {
+    var guard = try PairingGuard.init(std.testing.allocator, true, &.{});
+    defer guard.deinit();
+
+    const code = guard.pairingCode().?;
+    const result = guard.attemptPair(code);
+    switch (result) {
+        .paired => |token| {
+            defer std.testing.allocator.free(token);
+            try std.testing.expect(std.mem.startsWith(u8, token, "zc_"));
+        },
+        else => try std.testing.expect(false),
+    }
+}
+
+test "attemptPair reports already_paired when no code is available" {
+    const tokens = [_][]const u8{"zc_existing"};
+    var guard = try PairingGuard.init(std.testing.allocator, true, &tokens);
+    defer guard.deinit();
+
+    const result = guard.attemptPair("123456");
+    try std.testing.expect(result == .already_paired);
+}
+
+test "attemptPair reports disabled when pairing is off" {
+    var guard = try PairingGuard.init(std.testing.allocator, false, &.{});
+    defer guard.deinit();
+
+    const result = guard.attemptPair("123456");
+    try std.testing.expect(result == .disabled);
 }
