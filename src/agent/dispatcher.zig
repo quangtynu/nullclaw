@@ -409,6 +409,46 @@ pub fn formatNativeToolResults(allocator: std.mem.Allocator, results: []const To
     return try buf.toOwnedSlice(allocator);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Assistant History Builder
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Build an assistant history entry that includes serialized tool calls as XML.
+///
+/// When the provider returns structured tool_calls, we serialize them as
+/// `<tool_call>` XML tags so the conversation history stays in a canonical
+/// format regardless of whether tools came from native API or XML parsing.
+///
+/// Mirrors ZeroClaw's `build_assistant_history_with_tool_calls`.
+pub fn buildAssistantHistoryWithToolCalls(
+    allocator: std.mem.Allocator,
+    response_text: []const u8,
+    parsed_calls: []const ParsedToolCall,
+) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer buf.deinit(allocator);
+    const w = buf.writer(allocator);
+
+    if (response_text.len > 0) {
+        try w.writeAll(response_text);
+        try w.writeByte('\n');
+    }
+
+    for (parsed_calls) |call| {
+        try w.writeAll("<tool_call>\n");
+        const name_json = try std.json.Stringify.valueAlloc(allocator, call.name, .{});
+        defer allocator.free(name_json);
+        try w.writeAll("{\"name\": ");
+        try w.writeAll(name_json);
+        try w.writeAll(", \"arguments\": ");
+        try w.writeAll(call.arguments_json);
+        try w.writeByte('}');
+        try w.writeAll("\n</tool_call>\n");
+    }
+
+    return buf.toOwnedSlice(allocator);
+}
+
 // ── Internal helpers ────────────────────────────────────────────────────
 
 /// Find the first JSON object `{...}` in a string, handling nesting.
@@ -1837,4 +1877,120 @@ test "parseXmlToolCalls function-tag fallback when JSON has braces in value" {
     try std.testing.expectEqual(@as(usize, 1), result.calls.len);
     try std.testing.expectEqualStrings("shell", result.calls[0].name);
     try std.testing.expect(std.mem.indexOf(u8, result.calls[0].arguments_json, "echo {hello}") != null);
+}
+
+// ── buildAssistantHistoryWithToolCalls tests ─────────────────────
+
+test "buildAssistantHistoryWithToolCalls with text and calls" {
+    const allocator = std.testing.allocator;
+    const calls = [_]ParsedToolCall{
+        .{ .name = "shell", .arguments_json = "{\"command\":\"ls\"}" },
+        .{ .name = "file_read", .arguments_json = "{\"path\":\"a.txt\"}" },
+    };
+    const result = try buildAssistantHistoryWithToolCalls(
+        allocator,
+        "Let me check that.",
+        &calls,
+    );
+    defer allocator.free(result);
+
+    // Should contain the response text
+    try std.testing.expect(std.mem.indexOf(u8, result, "Let me check that.") != null);
+    // Should contain tool_call XML tags
+    try std.testing.expect(std.mem.indexOf(u8, result, "<tool_call>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "</tool_call>") != null);
+    // Should contain tool names
+    try std.testing.expect(std.mem.indexOf(u8, result, "\"shell\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "\"file_read\"") != null);
+    // Should contain two tool_call tags
+    var count: usize = 0;
+    var search = result;
+    while (std.mem.indexOf(u8, search, "<tool_call>")) |idx| {
+        count += 1;
+        search = search[idx + 11 ..];
+    }
+    try std.testing.expectEqual(@as(usize, 2), count);
+}
+
+test "buildAssistantHistoryWithToolCalls empty text" {
+    const allocator = std.testing.allocator;
+    const calls = [_]ParsedToolCall{
+        .{ .name = "shell", .arguments_json = "{}" },
+    };
+    const result = try buildAssistantHistoryWithToolCalls(
+        allocator,
+        "",
+        &calls,
+    );
+    defer allocator.free(result);
+
+    // Should NOT start with a newline (no empty text prefix)
+    try std.testing.expect(result[0] == '<');
+    try std.testing.expect(std.mem.indexOf(u8, result, "<tool_call>") != null);
+}
+
+test "buildAssistantHistoryWithToolCalls no calls" {
+    const allocator = std.testing.allocator;
+    const result = try buildAssistantHistoryWithToolCalls(
+        allocator,
+        "Just text, no tools.",
+        &.{},
+    );
+    defer allocator.free(result);
+
+    try std.testing.expectEqualStrings("Just text, no tools.\n", result);
+}
+
+test "buildAssistantHistoryWithToolCalls empty text and no calls" {
+    const allocator = std.testing.allocator;
+    const result = try buildAssistantHistoryWithToolCalls(
+        allocator,
+        "",
+        &.{},
+    );
+    defer allocator.free(result);
+
+    try std.testing.expectEqualStrings("", result);
+}
+
+test "buildAssistantHistoryWithToolCalls preserves arguments JSON" {
+    const allocator = std.testing.allocator;
+    const calls = [_]ParsedToolCall{
+        .{ .name = "file_write", .arguments_json = "{\"path\":\"test.py\",\"content\":\"print('hello')\"}" },
+    };
+    const result = try buildAssistantHistoryWithToolCalls(
+        allocator,
+        "",
+        &calls,
+    );
+    defer allocator.free(result);
+
+    try std.testing.expect(std.mem.indexOf(u8, result, "\"file_write\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "print('hello')") != null);
+}
+
+test "buildAssistantHistoryWithToolCalls escapes special chars in name" {
+    const allocator = std.testing.allocator;
+    const calls = [_]ParsedToolCall{
+        .{ .name = "shell\"injection", .arguments_json = "{}" },
+    };
+    const result = try buildAssistantHistoryWithToolCalls(
+        allocator,
+        "",
+        &calls,
+    );
+    defer allocator.free(result);
+
+    // The name should be properly JSON-escaped, so the output must be valid JSON inside <tool_call>
+    // Find the JSON between <tool_call> tags
+    const tc_start = std.mem.indexOf(u8, result, "<tool_call>\n").?;
+    const json_start = tc_start + "<tool_call>\n".len;
+    const tc_end = std.mem.indexOf(u8, result[json_start..], "\n</tool_call>").?;
+    const json_str = result[json_start .. json_start + tc_end];
+
+    // Must be valid JSON
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+    const name = parsed.value.object.get("name").?.string;
+    try std.testing.expectEqualStrings("shell\"injection", name);
 }
