@@ -39,31 +39,8 @@ pub const TelegramLoopState = struct {
     }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// ProviderHolder — tagged union so the concrete provider lives on the heap
-// ════════════════════════════════════════════════════════════════════════════
-
-pub const ProviderHolder = union(enum) {
-    openrouter: providers.openrouter.OpenRouterProvider,
-    anthropic: providers.anthropic.AnthropicProvider,
-    openai: providers.openai.OpenAiProvider,
-    gemini: providers.gemini.GeminiProvider,
-    ollama: providers.ollama.OllamaProvider,
-    compatible: providers.compatible.OpenAiCompatibleProvider,
-    openai_codex: providers.openai_codex.OpenAiCodexProvider,
-
-    pub fn provider(self: *ProviderHolder) providers.Provider {
-        return switch (self.*) {
-            .openrouter => |*p| p.provider(),
-            .anthropic => |*p| p.provider(),
-            .openai => |*p| p.provider(),
-            .gemini => |*p| p.provider(),
-            .ollama => |*p| p.provider(),
-            .compatible => |*p| p.provider(),
-            .openai_codex => |*p| p.provider(),
-        };
-    }
-};
+// Re-export centralized ProviderHolder from providers module.
+pub const ProviderHolder = providers.ProviderHolder;
 
 // ════════════════════════════════════════════════════════════════════════════
 // ChannelRuntime — container for polling-thread dependencies
@@ -83,34 +60,7 @@ pub const ChannelRuntime = struct {
         const holder = try allocator.create(ProviderHolder);
         errdefer allocator.destroy(holder);
 
-        const api_key = config.defaultProviderKey();
-        const kind = providers.classifyProvider(config.default_provider);
-        holder.* = switch (kind) {
-            .anthropic_provider => .{ .anthropic = providers.anthropic.AnthropicProvider.init(
-                allocator,
-                api_key,
-                if (std.mem.startsWith(u8, config.default_provider, "anthropic-custom:"))
-                    config.default_provider["anthropic-custom:".len..]
-                else
-                    null,
-            ) },
-            .openai_provider => .{ .openai = providers.openai.OpenAiProvider.init(allocator, api_key) },
-            .gemini_provider => .{ .gemini = providers.gemini.GeminiProvider.init(allocator, api_key) },
-            .ollama_provider => .{ .ollama = providers.ollama.OllamaProvider.init(allocator, null) },
-            .openrouter_provider => .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, api_key) },
-            .compatible_provider => .{ .compatible = providers.compatible.OpenAiCompatibleProvider.init(
-                allocator,
-                config.default_provider,
-                if (std.mem.startsWith(u8, config.default_provider, "custom:"))
-                    config.default_provider["custom:".len..]
-                else
-                    providers.compatibleProviderUrl(config.default_provider) orelse "https://openrouter.ai/api/v1",
-                api_key,
-                .bearer,
-            ) },
-            .openai_codex_provider => .{ .openai_codex = providers.openai_codex.OpenAiCodexProvider.init(allocator, null) },
-            .claude_cli_provider, .codex_cli_provider, .unknown => .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, api_key) },
-        };
+        holder.* = ProviderHolder.fromConfig(allocator, config.default_provider, config.defaultProviderKey());
 
         const provider_i = holder.provider();
 

@@ -8,7 +8,7 @@
 const std = @import("std");
 const tools_mod = @import("tools/root.zig");
 const config_mod = @import("config.zig");
-const yc = @import("root.zig");
+const json_util = @import("json_util.zig");
 const version = @import("version.zig");
 const platform = @import("platform.zig");
 const Allocator = std.mem.Allocator;
@@ -123,7 +123,7 @@ pub const McpServer = struct {
         var params_buf: std.ArrayListUnmanaged(u8) = .empty;
         defer params_buf.deinit(self.allocator);
         try params_buf.appendSlice(self.allocator, "{\"name\":");
-        try yc.json_util.appendJsonString(&params_buf, self.allocator, tool_name);
+        try json_util.appendJsonString(&params_buf, self.allocator, tool_name);
         try params_buf.appendSlice(self.allocator, ",\"arguments\":");
         try params_buf.appendSlice(self.allocator, args_json);
         try params_buf.append(self.allocator, '}');

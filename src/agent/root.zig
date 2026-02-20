@@ -1188,66 +1188,9 @@ pub fn run(allocator: std.mem.Allocator, args: []const [:0]const u8) !void {
         mem_opt = mem;
     } else |_| {}
 
-    // Create provider via ProviderHolder (concrete struct lives on the stack)
-    const ProviderHolder = union(enum) {
-        openrouter: providers.openrouter.OpenRouterProvider,
-        anthropic: providers.anthropic.AnthropicProvider,
-        openai: providers.openai.OpenAiProvider,
-        gemini: providers.gemini.GeminiProvider,
-        ollama: providers.ollama.OllamaProvider,
-        compatible: providers.compatible.OpenAiCompatibleProvider,
-        claude_cli: providers.claude_cli.ClaudeCliProvider,
-        codex_cli: providers.codex_cli.CodexCliProvider,
-        openai_codex: providers.openai_codex.OpenAiCodexProvider,
-    };
-
-    const kind = providers.classifyProvider(cfg.default_provider);
-    var holder: ProviderHolder = switch (kind) {
-        .anthropic_provider => .{ .anthropic = providers.anthropic.AnthropicProvider.init(
-            allocator,
-            cfg.defaultProviderKey(),
-            if (std.mem.startsWith(u8, cfg.default_provider, "anthropic-custom:"))
-                cfg.default_provider["anthropic-custom:".len..]
-            else
-                null,
-        ) },
-        .openai_provider => .{ .openai = providers.openai.OpenAiProvider.init(allocator, cfg.defaultProviderKey()) },
-        .gemini_provider => .{ .gemini = providers.gemini.GeminiProvider.init(allocator, cfg.defaultProviderKey()) },
-        .ollama_provider => .{ .ollama = providers.ollama.OllamaProvider.init(allocator, null) },
-        .openrouter_provider => .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, cfg.defaultProviderKey()) },
-        .compatible_provider => .{ .compatible = providers.compatible.OpenAiCompatibleProvider.init(
-            allocator,
-            cfg.default_provider,
-            if (std.mem.startsWith(u8, cfg.default_provider, "custom:"))
-                cfg.default_provider["custom:".len..]
-            else
-                providers.compatibleProviderUrl(cfg.default_provider) orelse "https://openrouter.ai/api/v1",
-            cfg.defaultProviderKey(),
-            .bearer,
-        ) },
-        .claude_cli_provider => if (providers.claude_cli.ClaudeCliProvider.init(allocator, null)) |p|
-            .{ .claude_cli = p }
-        else |_|
-            .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, cfg.defaultProviderKey()) },
-        .codex_cli_provider => if (providers.codex_cli.CodexCliProvider.init(allocator, null)) |p|
-            .{ .codex_cli = p }
-        else |_|
-            .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, cfg.defaultProviderKey()) },
-        .openai_codex_provider => .{ .openai_codex = providers.openai_codex.OpenAiCodexProvider.init(allocator, null) },
-        .unknown => .{ .openrouter = providers.openrouter.OpenRouterProvider.init(allocator, cfg.defaultProviderKey()) },
-    };
-
-    const provider_i: Provider = switch (holder) {
-        .openrouter => |*p| p.provider(),
-        .anthropic => |*p| p.provider(),
-        .openai => |*p| p.provider(),
-        .gemini => |*p| p.provider(),
-        .ollama => |*p| p.provider(),
-        .compatible => |*p| p.provider(),
-        .claude_cli => |*p| p.provider(),
-        .codex_cli => |*p| p.provider(),
-        .openai_codex => |*p| p.provider(),
-    };
+    // Create provider via centralized ProviderHolder (concrete struct lives on the stack)
+    var holder = providers.ProviderHolder.fromConfig(allocator, cfg.default_provider, cfg.defaultProviderKey());
+    const provider_i: Provider = holder.provider();
 
     const supports_streaming = provider_i.supportsStreaming();
 

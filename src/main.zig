@@ -792,40 +792,8 @@ fn runChannelStart(allocator: std.mem.Allocator, args: []const []const u8) !void
     const obs = noop_obs.observer();
 
     // Create provider vtable — concrete struct must stay alive for the loop.
-    // Use a tagged union so the right type lives on the stack.
-    const ProviderHolder = union(enum) {
-        openrouter: yc.providers.openrouter.OpenRouterProvider,
-        anthropic: yc.providers.anthropic.AnthropicProvider,
-        openai: yc.providers.openai.OpenAiProvider,
-        gemini: yc.providers.gemini.GeminiProvider,
-        ollama: yc.providers.ollama.OllamaProvider,
-        openai_codex: yc.providers.openai_codex.OpenAiCodexProvider,
-    };
-
-    const api_key = config.defaultProviderKey();
-    var holder: ProviderHolder = if (std.mem.eql(u8, config.default_provider, "anthropic"))
-        .{ .anthropic = yc.providers.anthropic.AnthropicProvider.init(allocator, api_key, null) }
-    else if (std.mem.eql(u8, config.default_provider, "openai"))
-        .{ .openai = yc.providers.openai.OpenAiProvider.init(allocator, api_key) }
-    else if (std.mem.eql(u8, config.default_provider, "gemini") or
-        std.mem.eql(u8, config.default_provider, "google"))
-        .{ .gemini = yc.providers.gemini.GeminiProvider.init(allocator, api_key) }
-    else if (std.mem.eql(u8, config.default_provider, "ollama"))
-        .{ .ollama = yc.providers.ollama.OllamaProvider.init(allocator, null) }
-    else if (std.mem.eql(u8, config.default_provider, "openai-codex"))
-        .{ .openai_codex = yc.providers.openai_codex.OpenAiCodexProvider.init(allocator, null) }
-    else
-        // Default: OpenRouter (also handles all other provider names)
-        .{ .openrouter = yc.providers.openrouter.OpenRouterProvider.init(allocator, api_key) };
-
-    const provider_i: yc.providers.Provider = switch (holder) {
-        .openrouter => |*p| p.provider(),
-        .anthropic => |*p| p.provider(),
-        .openai => |*p| p.provider(),
-        .gemini => |*p| p.provider(),
-        .ollama => |*p| p.provider(),
-        .openai_codex => |*p| p.provider(),
-    };
+    var holder = yc.providers.ProviderHolder.fromConfig(allocator, config.default_provider, config.defaultProviderKey());
+    const provider_i: yc.providers.Provider = holder.provider();
 
     std.debug.print("  Tools: {d} loaded\n", .{tools.len});
     std.debug.print("  Memory: {s}\n", .{if (mem_opt != null) "enabled" else "disabled"});

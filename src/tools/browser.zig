@@ -84,36 +84,23 @@ pub const BrowserTool = struct {
             return ToolResult{ .success = true, .output = msg };
         }
 
-        var child = std.process.Child.init(
-            if (comptime builtin.os.tag == .windows)
-                &.{ "cmd.exe", "/c", "start", url }
-            else
-                &.{ comptime if (builtin.os.tag == .macos) "open" else "xdg-open", url },
-            allocator,
-        );
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
+        const proc = @import("process_util.zig");
+        const argv: []const []const u8 = if (comptime builtin.os.tag == .windows)
+            &.{ "cmd.exe", "/c", "start", url }
+        else
+            &.{ comptime if (builtin.os.tag == .macos) "open" else "xdg-open", url };
 
-        child.spawn() catch {
+        const result = proc.run(allocator, argv, .{ .max_output_bytes = 4096 }) catch {
             return ToolResult.fail("Failed to spawn browser open command");
         };
+        result.deinit(allocator);
 
-        // Drain pipes so the child doesn't block.
-        _ = child.stdout.?.readToEndAlloc(allocator, 4096) catch "";
-        _ = child.stderr.?.readToEndAlloc(allocator, 4096) catch "";
-
-        const term = child.wait() catch {
-            return ToolResult.fail("Failed to wait for browser open command");
-        };
-
-        switch (term) {
-            .Exited => |code| if (code != 0) {
+        if (!result.success) {
+            if (result.exit_code) |code| {
                 const msg = try std.fmt.allocPrint(allocator, "Browser open command exited with code {d}", .{code});
                 return ToolResult{ .success = false, .output = "", .error_msg = msg };
-            },
-            else => {
-                return ToolResult{ .success = false, .output = "", .error_msg = "Browser open command terminated by signal" };
-            },
+            }
+            return ToolResult{ .success = false, .output = "", .error_msg = "Browser open command terminated by signal" };
         }
 
         const msg = try std.fmt.allocPrint(allocator, "Opened {s} in system browser", .{url});
@@ -131,52 +118,33 @@ pub const BrowserTool = struct {
         //   -m 10  timeout 10 seconds
         //   --max-filesize 65536  abort if body exceeds 64 KB
         const max_size_str = std.fmt.comptimePrint("{d}", .{MAX_FETCH_BYTES});
-        var child = std.process.Child.init(
-            &.{ "curl", "-sS", "-L", "-m", "10", "--max-filesize", max_size_str, url },
-            allocator,
-        );
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-
-        child.spawn() catch {
+        const proc = @import("process_util.zig");
+        const result = proc.run(allocator, &.{ "curl", "-sS", "-L", "-m", "10", "--max-filesize", max_size_str, url }, .{ .max_output_bytes = MAX_FETCH_BYTES }) catch {
             return ToolResult.fail("Failed to spawn curl — is curl installed?");
         };
+        defer allocator.free(result.stderr);
+        defer allocator.free(result.stdout);
 
-        const raw_body = child.stdout.?.readToEndAlloc(allocator, MAX_FETCH_BYTES) catch |err| {
-            const msg = try std.fmt.allocPrint(allocator, "Failed to read curl output: {s}", .{@errorName(err)});
-            return ToolResult{ .success = false, .output = "", .error_msg = msg };
-        };
-        defer allocator.free(raw_body);
-
-        const stderr_out = child.stderr.?.readToEndAlloc(allocator, 4096) catch "";
-        defer if (stderr_out.len > 0) allocator.free(stderr_out);
-
-        const term = child.wait() catch {
-            return ToolResult.fail("Failed to wait for curl process");
-        };
-
-        switch (term) {
-            .Exited => |code| if (code != 0) {
-                const detail = if (stderr_out.len > 0) stderr_out else "curl request failed";
+        if (!result.success) {
+            if (result.exit_code) |code| {
+                const detail = if (result.stderr.len > 0) result.stderr else "curl request failed";
                 const msg = try std.fmt.allocPrint(allocator, "curl exited with code {d}: {s}", .{ code, detail });
                 return ToolResult{ .success = false, .output = "", .error_msg = msg };
-            },
-            else => {
-                return ToolResult{ .success = false, .output = "", .error_msg = "curl terminated by signal" };
-            },
+            }
+            return ToolResult{ .success = false, .output = "", .error_msg = "curl terminated by signal" };
         }
 
-        if (raw_body.len == 0) {
+        if (result.stdout.len == 0) {
             const msg = try allocator.dupe(u8, "Page returned empty response");
             return ToolResult{ .success = true, .output = msg };
         }
 
         // Truncate to MAX_READ_BYTES
-        const truncated = raw_body.len > MAX_READ_BYTES;
-        const body_len = if (truncated) MAX_READ_BYTES else raw_body.len;
+        const truncated = result.stdout.len > MAX_READ_BYTES;
+        const body_len = if (truncated) MAX_READ_BYTES else result.stdout.len;
         const suffix: []const u8 = if (truncated) "\n\n[Content truncated to 8 KB]" else "";
 
-        const output = try std.fmt.allocPrint(allocator, "{s}{s}", .{ raw_body[0..body_len], suffix });
+        const output = try std.fmt.allocPrint(allocator, "{s}{s}", .{ result.stdout[0..body_len], suffix });
         return ToolResult{ .success = true, .output = output };
     }
 };
